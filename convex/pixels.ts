@@ -18,20 +18,31 @@ export const getAll = query({
 
 /**
  * Returns the credit cost for each cell on next edit (1 for new, current+1 for existing).
+ * If color is provided and matches current canvas color, returns 0 (no charge for no-op).
  */
 export const getPricesForCells = query({
   args: {
-    cells: v.array(v.object({ x: v.number(), y: v.number() })),
+    cells: v.array(
+      v.object({
+        x: v.number(),
+        y: v.number(),
+        color: v.optional(v.string()),
+      })
+    ),
   },
   returns: v.array(v.number()),
   handler: async (ctx, { cells }) => {
     const prices: number[] = [];
-    for (const { x, y } of cells) {
+    for (const { x, y, color } of cells) {
       const existing = await ctx.db
         .query("pixels")
         .withIndex("by_xy", (q) => q.eq("x", x).eq("y", y))
         .unique();
-      prices.push(getPriceForEdit(existing?.price));
+      if (color !== undefined && existing?.color === color) {
+        prices.push(0);
+      } else {
+        prices.push(getPriceForEdit(existing?.price));
+      }
     }
     return prices;
   },
@@ -56,6 +67,11 @@ export const paint = mutation({
       .query("pixels")
       .withIndex("by_xy", (q) => q.eq("x", x).eq("y", y))
       .unique();
+
+    // No charge and no update if color already matches (e.g. another user committed same color)
+    if (existing?.color === color) {
+      return { remaining: user.credits };
+    }
 
     const price = getPriceForEdit(existing?.price);
 
@@ -123,6 +139,11 @@ export const commit = mutation({
         .query("pixels")
         .withIndex("by_xy", (q) => q.eq("x", px.x).eq("y", px.y))
         .unique();
+
+      // Skip same-color: no charge, no write, no price increase
+      if (existing?.color === px.color) {
+        continue;
+      }
 
       const price = getPriceForEdit(existing?.price);
       totalCost += price;

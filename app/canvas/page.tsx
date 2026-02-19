@@ -134,9 +134,9 @@ export default function CanvasPage() {
 
   const pendingCells = useMemo(
     () =>
-      Object.keys(pendingState.pending).map((key) => {
+      Object.entries(pendingState.pending).map(([key, color]) => {
         const [x, y] = key.split(",").map(Number);
-        return { x, y };
+        return { x, y, color };
       }),
     [pendingState.pending]
   );
