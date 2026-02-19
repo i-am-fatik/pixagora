@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
@@ -115,12 +115,16 @@ function pendingReducer(state: PendingState, action: PendingAction): PendingStat
 export default function CanvasPage() {
   const [token, setToken] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [invalidToken, setInvalidToken] = useState(false);
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
   const [isCommitting, setIsCommitting] = useState(false);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
     initialPendingState,
   );
+  const loginDialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const user = useQuery(
     api.users.getByToken,
@@ -141,6 +145,8 @@ export default function CanvasPage() {
     if (!token.trim()) return;
     localStorage.setItem("pixagora-token", token);
     setLoggedIn(true);
+    setInvalidToken(false);
+    setLoginOpen(false);
   };
 
   const handleLogout = () => {
@@ -156,9 +162,70 @@ export default function CanvasPage() {
 
   useEffect(() => {
     if (showInvalidToken) {
+      localStorage.removeItem("pixagora-token");
+      setToken("");
+      setLoggedIn(false);
+      setInvalidToken(true);
       dispatch({ type: "reset" });
+      setLoginOpen(true);
     }
   }, [showInvalidToken]);
+
+  useEffect(() => {
+    if (!loginOpen) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const dialog = loginDialogRef.current;
+    const focusable = dialog?.querySelector<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusable) {
+      focusable.focus();
+    } else {
+      dialog?.focus();
+    }
+    return () => {
+      previousFocusRef.current?.focus?.();
+    };
+  }, [loginOpen]);
+
+  const handleModalKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      setLoginOpen(false);
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const dialog = loginDialogRef.current;
+    if (!dialog) return;
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((el) => !el.hasAttribute("disabled") && !el.getAttribute("aria-hidden"));
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const isShift = event.shiftKey;
+
+    if (isShift && document.activeElement === first) {
+      last.focus();
+      event.preventDefault();
+    } else if (!isShift && document.activeElement === last) {
+      first.focus();
+      event.preventDefault();
+    }
+  };
+
+  const handleTokenChange = (value: string) => {
+    setToken(value);
+    if (invalidToken) {
+      setInvalidToken(false);
+    }
+  };
 
   const serverPixelMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -210,66 +277,93 @@ export default function CanvasPage() {
   };
 
   return (
-    <CanvasPageLayout
-      isLoggedIn={loggedIn}
-      credits={user?.credits}
-      onSignIn={handleLogin}
-      onSignOut={handleLogout}
-      signInDisabled={!token.trim()}
-      showInvalidToken={showInvalidToken}
-      colors={COLORS}
-      selectedColor={selectedColor}
-      onSelectColor={setSelectedColor}
-      changedCount={pendingCount}
-      totalCost={totalCost}
-      onUndo={() => dispatch({ type: "undo" })}
-      onRedo={() => dispatch({ type: "redo" })}
-      onCommit={handleCommit}
-      canUndo={pendingState.history.length > 0}
-      canRedo={pendingState.redo.length > 0}
-      canCommit={isAuthenticated && pendingCount > 0}
-      isCommitting={isCommitting}
-    >
-      <div className="flex min-h-full items-center justify-center p-6">
-        {!loggedIn || showInvalidToken ? (
-          <div className="w-full max-w-md space-y-4 rounded-2xl border bg-card p-6 shadow-sm">
+    <>
+      <CanvasPageLayout
+        isLoggedIn={loggedIn}
+        credits={user?.credits}
+        onSignIn={() => setLoginOpen(true)}
+        onSignOut={handleLogout}
+        signInDisabled={false}
+        showInvalidToken={invalidToken}
+        colors={COLORS}
+        selectedColor={selectedColor}
+        onSelectColor={setSelectedColor}
+        changedCount={pendingCount}
+        totalCost={totalCost}
+        onUndo={() => dispatch({ type: "undo" })}
+        onRedo={() => dispatch({ type: "redo" })}
+        onCommit={handleCommit}
+        canUndo={pendingState.history.length > 0}
+        canRedo={pendingState.redo.length > 0}
+        canCommit={isAuthenticated && pendingCount > 0}
+        isCommitting={isCommitting}
+        showFooter={isAuthenticated}
+      >
+        <div className="flex min-h-full items-center justify-center p-6">
+          {isLoadingUser ? (
+            <div className="text-sm text-muted-foreground">Načítám uživatele…</div>
+          ) : (
+            <Canvas
+              pixels={displayPixels}
+              width={GRID_WIDTH}
+              height={GRID_HEIGHT}
+              selectedColor={selectedColor}
+              onPixelClick={handlePixelClick}
+            />
+          )}
+        </div>
+      </CanvasPageLayout>
+
+      {loginOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            ref={loginDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="login-title"
+            aria-describedby="login-desc"
+            tabIndex={-1}
+            onKeyDown={handleModalKeyDown}
+            className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
+          >
             <div className="space-y-1">
-              <h1 className="text-2xl font-semibold">Pixagora</h1>
-              <p className="text-sm text-muted-foreground">
+              <h2 id="login-title" className="text-xl font-semibold">
+                Přihlášení
+              </h2>
+              <p id="login-desc" className="text-sm text-muted-foreground">
                 Zadej token a začni malovat.
               </p>
             </div>
             <Input
               value={token}
-              onChange={(event) => setToken(event.target.value)}
+              onChange={(event) => handleTokenChange(event.target.value)}
               onKeyDown={(event) => event.key === "Enter" && handleLogin()}
               placeholder="Token..."
+              autoFocus
             />
-            <Button
-              onClick={handleLogin}
-              disabled={!token.trim()}
-              className="w-full"
-            >
-              Přihlásit
-            </Button>
-            {showInvalidToken && (
+            {invalidToken && (
               <p className="text-sm text-destructive">
                 Tento token není platný. Zkus to prosím znovu.
               </p>
             )}
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleLogin}
+                disabled={!token.trim()}
+                className="flex-1"
+              >
+                Přihlásit
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setLoginOpen(false)}
+              >
+                Zavřít
+              </Button>
+            </div>
           </div>
-        ) : isLoadingUser ? (
-          <div className="text-sm text-muted-foreground">Načítám uživatele…</div>
-        ) : (
-          <Canvas
-            pixels={displayPixels}
-            width={GRID_WIDTH}
-            height={GRID_HEIGHT}
-            selectedColor={selectedColor}
-            onPixelClick={handlePixelClick}
-          />
-        )}
-      </div>
-    </CanvasPageLayout>
+        </div>
+      )}
+    </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { PaintBucket, Pipette } from "lucide-react";
 
 type ColorPickerProps = {
@@ -14,16 +14,17 @@ export function ColorPicker({
   selectedColor,
   onSelectColor,
 }: ColorPickerProps) {
-  const colorStripWidth = Math.max(
-    0,
-    colors.length * 36 + Math.max(colors.length - 1, 0) * 8,
-  );
-  const colorStripStyle = {
-    "--color-strip-width": `${colorStripWidth}px`,
-  } as CSSProperties;
+  const [eyeDropperSupported, setEyeDropperSupported] = useState(false);
+
+  useEffect(() => {
+    setEyeDropperSupported(
+      typeof window !== "undefined" &&
+        "EyeDropper" in (window as unknown as Record<string, unknown>),
+    );
+  }, []);
 
   const handleEyeDropper = async () => {
-    if (typeof window === "undefined") return;
+    if (!eyeDropperSupported) return;
     const EyeDropperCtor = (window as unknown as { EyeDropper?: any }).EyeDropper;
     if (!EyeDropperCtor) return;
     try {
@@ -40,8 +41,7 @@ export function ColorPicker({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <div
-        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-1 pl-1 pr-1 scroll-smooth snap-x snap-mandatory scroll-pl-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-none sm:gap-2 sm:max-w-[var(--color-strip-width)] sm:w-[var(--color-strip-width)] sm:overflow-x-visible sm:snap-none sm:pl-0 sm:pr-0"
-        style={colorStripStyle}
+        className="color-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden py-1 pl-2 pr-2 scroll-smooth snap-x snap-mandatory scroll-pl-2 sm:flex-[0_1_auto] sm:gap-2 sm:max-w-[45vw] sm:overflow-x-auto sm:snap-x sm:snap-mandatory md:max-w-[50vw] lg:max-w-[40vw] xl:max-w-[45vw] 2xl:max-w-[50vw]"
       >
         {colors.map((color) => (
           <button
@@ -72,7 +72,13 @@ export function ColorPicker({
         <button
           type="button"
           onClick={handleEyeDropper}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground sm:h-9 sm:w-9"
+          disabled={!eyeDropperSupported}
+          title={
+            eyeDropperSupported
+              ? "Eyedropper"
+              : "Eyedropper není v tomto prohlížeči dostupný"
+          }
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 sm:h-9 sm:w-9"
           aria-label="Eyedropper"
         >
           <Pipette className="h-4 w-4" />
