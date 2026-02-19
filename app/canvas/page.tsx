@@ -13,14 +13,14 @@ const GRID_HEIGHT = 10;
 const PIXEL_PRICE = 1;
 
 const COLORS = [
-  "#000000",
-  "#ffffff",
-  "#ff0000",
-  "#00ff00",
-  "#0000ff",
-  "#ffff00",
-  "#ff00ff",
-  "#ff8800",
+  "#000000", // black
+  "#FFFFFF", // white (peace)
+  "#FFD400", // ancap yellow
+  "#F7931A", // BTC orange
+  "#00AEEF", // cyan
+  "#EC008C", // magenta
+  "#0057B8", // royal blue
+  "#00A651", // green
 ];
 
 type PendingChange = {
