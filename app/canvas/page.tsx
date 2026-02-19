@@ -14,6 +14,7 @@ const PIXEL_PRICE = 1;
 
 const COLORS = [
   "#000000", // black
+  "#7F7F7F", // agorist gray
   "#FFFFFF", // white (peace)
   "#FFD400", // ancap yellow
   "#F7931A", // BTC orange

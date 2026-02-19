@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Check, Coins, Redo2, Undo2 } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
-const LOGO_SQUARES = ["#111111", "#3b82f6", "#f97316", "#22c55e"];
+const LOGO_SQUARES = ["#000000", "#7F7F7F", "#FFD400", "#F7931A"];
 
 type CanvasPageLayoutProps = {
   children: ReactNode;
