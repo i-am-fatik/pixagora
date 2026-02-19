@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 
 const GRID_WIDTH = 10;
 const GRID_HEIGHT = 10;
-const PIXEL_PRICE = 1;
 
 const COLORS = [
   "#000000", // black
@@ -133,6 +132,21 @@ export default function CanvasPage() {
   const pixels = useQuery(api.pixels.getAll);
   const commitPixels = useMutation(api.pixels.commit);
 
+  const pendingCells = useMemo(
+    () =>
+      Object.keys(pendingState.pending).map((key) => {
+        const [x, y] = key.split(",").map(Number);
+        return { x, y };
+      }),
+    [pendingState.pending]
+  );
+  const pendingPrices = useQuery(
+    api.pixels.getPricesForCells,
+    pendingCells.length > 0 ? { cells: pendingCells } : "skip"
+  );
+  const totalCost =
+    pendingPrices?.reduce((sum, p) => sum + p, 0) ?? 0;
+
   useEffect(() => {
     const saved = localStorage.getItem("pixagora-token");
     if (saved) {
@@ -247,7 +261,6 @@ export default function CanvasPage() {
   }, [serverPixelMap, pendingState.pending]);
 
   const pendingCount = Object.keys(pendingState.pending).length;
-  const totalCost = pendingCount * PIXEL_PRICE;
 
   const handlePixelClick = (x: number, y: number) => {
     if (!isAuthenticated) return;

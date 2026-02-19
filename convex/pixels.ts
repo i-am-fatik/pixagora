@@ -2,16 +2,38 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
- * Flat pricing — every pixel costs 1 credit.
+ * Each edit increases the price of that pixel by 1.
+ * First paint: 1 credit, second edit: 2, third: 3, etc.
  */
-export function getPixelPrice(): number {
-  return 1;
+export function getPriceForEdit(currentPrice: number | undefined): number {
+  return (currentPrice ?? 0) + 1;
 }
 
 export const getAll = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("pixels").collect();
+  },
+});
+
+/**
+ * Returns the credit cost for each cell on next edit (1 for new, current+1 for existing).
+ */
+export const getPricesForCells = query({
+  args: {
+    cells: v.array(v.object({ x: v.number(), y: v.number() })),
+  },
+  returns: v.array(v.number()),
+  handler: async (ctx, { cells }) => {
+    const prices: number[] = [];
+    for (const { x, y } of cells) {
+      const existing = await ctx.db
+        .query("pixels")
+        .withIndex("by_xy", (q) => q.eq("x", x).eq("y", y))
+        .unique();
+      prices.push(getPriceForEdit(existing?.price));
+    }
+    return prices;
   },
 });
 
@@ -29,7 +51,13 @@ export const paint = mutation({
       .unique();
     if (!user) throw new Error("Invalid token");
 
-    const price = getPixelPrice();
+    // Find or create pixel to determine price (each edit costs +1)
+    const existing = await ctx.db
+      .query("pixels")
+      .withIndex("by_xy", (q) => q.eq("x", x).eq("y", y))
+      .unique();
+
+    const price = getPriceForEdit(existing?.price);
 
     if (user.credits < price) {
       throw new Error("Not enough credits");
@@ -39,12 +67,6 @@ export const paint = mutation({
     await ctx.db.patch(user._id, {
       credits: user.credits - price,
     });
-
-    // Find or create pixel
-    const existing = await ctx.db
-      .query("pixels")
-      .withIndex("by_xy", (q) => q.eq("x", x).eq("y", y))
-      .unique();
 
     const now = Date.now();
     if (existing) {
@@ -102,7 +124,7 @@ export const commit = mutation({
         .withIndex("by_xy", (q) => q.eq("x", px.x).eq("y", px.y))
         .unique();
 
-      const price = getPixelPrice();
+      const price = getPriceForEdit(existing?.price);
       totalCost += price;
       pixelDetails.push({
         ...px,
