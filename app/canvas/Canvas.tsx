@@ -93,7 +93,7 @@ export function Canvas({
     return () => observer.disconnect();
   }, []);
 
-  const CELL_GAP = 2;
+  const CELL_GAP = 1;
 
   const baseCellSize = useMemo(() => {
     if (!containerSize.width || !containerSize.height) return 24;
@@ -140,7 +140,12 @@ export function Canvas({
         y: clamp(y, minY, maxY),
       };
     },
-    [baseSize.height, baseSize.width, containerSize.height, containerSize.width],
+    [
+      baseSize.height,
+      baseSize.width,
+      containerSize.height,
+      containerSize.width,
+    ],
   );
 
   const getBounds = useCallback(
@@ -162,7 +167,12 @@ export function Canvas({
 
       return { minX, maxX, minY, maxY };
     },
-    [baseSize.height, baseSize.width, containerSize.height, containerSize.width],
+    [
+      baseSize.height,
+      baseSize.width,
+      containerSize.height,
+      containerSize.width,
+    ],
   );
 
   const setTranslateSafe = useCallback(
@@ -451,6 +461,7 @@ export function Canvas({
       const key = `${x},${y}`;
       const color = pixelMap.get(key);
       const isHovered = hoveredCell === key;
+      const borderColor = color ?? "#e5e5e5";
 
       cells.push(
         <div
@@ -461,17 +472,16 @@ export function Canvas({
           style={{
             width: baseCellSize,
             height: baseCellSize,
-            backgroundColor: isHovered
-              ? selectedColor
-              : color ?? "#e5e5e5",
+            backgroundColor: isHovered ? selectedColor : (color ?? "#ffffff"),
             opacity: isHovered && !color ? 0.7 : 1,
             cursor: "pointer",
-            border: "2px solid #d4d4d4",
-            borderRadius: 4,
+            border: "1.5px solid",
+            borderColor,
+            borderRadius: 2,
             transition: "background-color 0.1s",
             boxSizing: "border-box",
           }}
-        />
+        />,
       );
     }
   }
