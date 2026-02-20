@@ -301,9 +301,15 @@ export default function CanvasPage() {
     }
     const key = `${x},${y}`;
     const serverColor = serverPixelMap.get(key)?.color;
-    const nextPending =
-      selectedColor === serverColor ? undefined : selectedColor;
-    dispatch({ type: "apply", key, nextPending });
+    const visibleColor = pendingState.pending[key] ?? serverColor;
+
+    if (selectedColor === visibleColor) {
+      dispatch({ type: "apply", key, nextPending: undefined });
+    } else {
+      const nextPending =
+        selectedColor === serverColor ? undefined : selectedColor;
+      dispatch({ type: "apply", key, nextPending });
+    }
   };
 
   const handleCommit = async () => {
