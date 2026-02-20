@@ -1,0 +1,71 @@
+import { query, internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+
+const MAX_CANVAS_DIMENSION = 1000;
+
+export const getAll = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("canvases")
+      .withIndex("by_order")
+      .collect();
+  },
+});
+
+export const getById = query({
+  args: { id: v.id("canvases") },
+  handler: async (ctx, { id }) => {
+    return await ctx.db.get(id);
+  },
+});
+
+export const create = internalMutation({
+  args: {
+    name: v.string(),
+    width: v.number(),
+    height: v.number(),
+    colors: v.array(v.string()),
+    pixelPrice: v.number(),
+    unlockThreshold: v.optional(v.number()),
+    order: v.optional(v.number()),
+    createdBy: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    if (!Number.isInteger(args.width) || args.width < 1 || args.width > MAX_CANVAS_DIMENSION) {
+      throw new Error(`width must be an integer between 1 and ${MAX_CANVAS_DIMENSION}`);
+    }
+    if (!Number.isInteger(args.height) || args.height < 1 || args.height > MAX_CANVAS_DIMENSION) {
+      throw new Error(`height must be an integer between 1 and ${MAX_CANVAS_DIMENSION}`);
+    }
+    if (args.pixelPrice <= 0) {
+      throw new Error("pixelPrice must be positive");
+    }
+    const threshold = args.unlockThreshold ?? 0.8;
+    if (threshold <= 0 || threshold > 1) {
+      throw new Error("unlockThreshold must be between 0 (exclusive) and 1 (inclusive)");
+    }
+
+    let order = args.order;
+    if (order === undefined) {
+      const all = await ctx.db
+        .query("canvases")
+        .withIndex("by_order")
+        .collect();
+      order = all.length > 0 ? all[all.length - 1].order + 1 : 0;
+    }
+
+    const id = await ctx.db.insert("canvases", {
+      name: args.name,
+      width: args.width,
+      height: args.height,
+      colors: args.colors,
+      pixelPrice: args.pixelPrice,
+      unlockThreshold: threshold,
+      order,
+      createdAt: Date.now(),
+      createdBy: args.createdBy,
+    });
+    return id;
+  },
+});

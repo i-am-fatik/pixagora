@@ -17,12 +17,44 @@ export default defineSchema({
     createdAt: v.number(),
   }),
 
+  canvases: defineTable({
+    name: v.string(),
+    width: v.number(),
+    height: v.number(),
+    colors: v.array(v.string()),
+    pixelPrice: v.number(),
+    unlockThreshold: v.number(),
+    order: v.number(),
+    createdAt: v.number(),
+    createdBy: v.optional(v.id("users")),
+  })
+    .index("by_order", ["order"]),
+
+  transactions: defineTable({
+    canvasId: v.id("canvases"),
+    userId: v.id("users"),
+    timestamp: v.number(),
+    changes: v.array(
+      v.object({
+        x: v.number(),
+        y: v.number(),
+        color: v.string(),
+        previousColor: v.optional(v.string()),
+      })
+    ),
+  })
+    .index("by_canvas", ["canvasId"])
+    .index("by_canvas_time", ["canvasId", "timestamp"])
+    .index("by_user", ["userId"])
+    .index("by_user_canvas", ["userId", "canvasId"]),
+
   pixels: defineTable({
+    canvasId: v.id("canvases"),
     x: v.number(),
     y: v.number(),
     color: v.string(),
     price: v.number(),
     userId: v.id("users"),
     updatedAt: v.number(),
-  }).index("by_xy", ["x", "y"]),
+  }).index("by_canvas_xy", ["canvasId", "x", "y"]),
 });

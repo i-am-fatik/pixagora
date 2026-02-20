@@ -1,52 +1,118 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { Doc, Id } from "./_generated/dataModel";
 
-/**
- * Flat pricing — every pixel costs 1 credit.
- */
-export function getPixelPrice(): number {
-  return 1;
-}
+const MAX_BATCH_SIZE = 500;
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
-export const getAll = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("pixels").collect();
+export const getByCanvas = query({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, { canvasId }) => {
+    return await ctx.db
+      .query("pixels")
+      .withIndex("by_canvas_xy", (q) => q.eq("canvasId", canvasId))
+      .collect();
   },
 });
+
+async function maybeCreateNextCanvas(
+  ctx: MutationCtx,
+  canvas: Doc<"canvases">,
+) {
+  const totalCells = canvas.width * canvas.height;
+  if (totalCells <= 0) {
+    return;
+  }
+
+  const pixelCount = (
+    await ctx.db
+      .query("pixels")
+      .withIndex("by_canvas_xy", (q) => q.eq("canvasId", canvas._id))
+      .collect()
+  ).length;
+
+  const fillRatio = pixelCount / totalCells;
+  if (fillRatio < canvas.unlockThreshold) {
+    return;
+  }
+
+  const nextOrder = canvas.order + 1;
+  const existing = await ctx.db
+    .query("canvases")
+    .withIndex("by_order", (q) => q.eq("order", nextOrder))
+    .unique();
+  if (existing) {
+    return;
+  }
+
+  const nextNumber = nextOrder + 1;
+  await ctx.db.insert("canvases", {
+    name: `Pixagora #${nextNumber}`,
+    width: canvas.width,
+    height: canvas.height,
+    colors: canvas.colors,
+    pixelPrice: canvas.pixelPrice,
+    unlockThreshold: canvas.unlockThreshold,
+    order: nextOrder,
+    createdAt: Date.now(),
+  });
+}
+
+function validateCoordinate(value: number, label: string, max: number) {
+  if (!Number.isInteger(value) || value < 0 || value >= max) {
+    throw new Error(`${label} out of bounds`);
+  }
+}
 
 export const paint = mutation({
   args: {
     token: v.string(),
+    canvasId: v.id("canvases"),
     x: v.number(),
     y: v.number(),
     color: v.string(),
   },
-  handler: async (ctx, { token, x, y, color }) => {
+  handler: async (ctx, { token, canvasId, x, y, color }) => {
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) => q.eq("token", token))
       .unique();
-    if (!user) throw new Error("Invalid token");
+    if (!user) {
+      throw new Error("Invalid token");
+    }
 
-    const price = getPixelPrice();
+    const canvas = await ctx.db.get(canvasId);
+    if (!canvas) {
+      throw new Error("Canvas not found");
+    }
+
+    validateCoordinate(x, "x", canvas.width);
+    validateCoordinate(y, "y", canvas.height);
+
+    if (!HEX_COLOR_RE.test(color)) {
+      throw new Error("Invalid color format");
+    }
+
+    const existing = await ctx.db
+      .query("pixels")
+      .withIndex("by_canvas_xy", (q) =>
+        q.eq("canvasId", canvasId).eq("x", x).eq("y", y)
+      )
+      .unique();
+
+    const price = existing ? existing.price * 2 : canvas.pixelPrice;
 
     if (user.credits < price) {
       throw new Error("Not enough credits");
     }
 
-    // Deduct credit
+    const previousColor = existing?.color;
+    const now = Date.now();
+
     await ctx.db.patch(user._id, {
       credits: user.credits - price,
     });
 
-    // Find or create pixel
-    const existing = await ctx.db
-      .query("pixels")
-      .withIndex("by_xy", (q) => q.eq("x", x).eq("y", y))
-      .unique();
-
-    const now = Date.now();
     if (existing) {
       await ctx.db.patch(existing._id, {
         color,
@@ -56,6 +122,7 @@ export const paint = mutation({
       });
     } else {
       await ctx.db.insert("pixels", {
+        canvasId,
         x,
         y,
         color,
@@ -65,6 +132,15 @@ export const paint = mutation({
       });
     }
 
+    await ctx.db.insert("transactions", {
+      canvasId,
+      userId: user._id,
+      timestamp: now,
+      changes: [{ x, y, color, previousColor }],
+    });
+
+    await maybeCreateNextCanvas(ctx, canvas);
+
     return { remaining: user.credits - price };
   },
 });
@@ -72,6 +148,7 @@ export const paint = mutation({
 export const commit = mutation({
   args: {
     token: v.string(),
+    canvasId: v.id("canvases"),
     pixels: v.array(
       v.object({
         x: v.number(),
@@ -80,12 +157,33 @@ export const commit = mutation({
       })
     ),
   },
-  handler: async (ctx, { token, pixels }) => {
+  handler: async (ctx, { token, canvasId, pixels }) => {
+    if (pixels.length === 0) {
+      throw new Error("No pixels to commit");
+    }
+    if (pixels.length > MAX_BATCH_SIZE) {
+      throw new Error(`Batch too large (max ${MAX_BATCH_SIZE})`);
+    }
+
     const user = await ctx.db
       .query("users")
       .withIndex("by_token", (q) => q.eq("token", token))
       .unique();
-    if (!user) throw new Error("Invalid token");
+    if (!user) {
+      throw new Error("Invalid token");
+    }
+
+    const canvas = await ctx.db.get(canvasId);
+    if (!canvas) {
+      throw new Error("Canvas not found");
+    }
+
+    const changes: {
+      x: number;
+      y: number;
+      color: string;
+      previousColor?: string;
+    }[] = [];
 
     let totalCost = 0;
     const pixelDetails: {
@@ -93,28 +191,41 @@ export const commit = mutation({
       y: number;
       color: string;
       price: number;
-      existingId?: string;
+      existingId?: Id<"pixels">;
+      previousColor?: string;
     }[] = [];
 
-    for (const px of pixels) {
+    const dedupedPixels = [
+      ...new Map(pixels.map((px) => [`${px.x},${px.y}`, px])).values(),
+    ];
+
+    for (const px of dedupedPixels) {
+      validateCoordinate(px.x, "x", canvas.width);
+      validateCoordinate(px.y, "y", canvas.height);
+
+      if (!HEX_COLOR_RE.test(px.color)) {
+        throw new Error("Invalid color format");
+      }
+
       const existing = await ctx.db
         .query("pixels")
-        .withIndex("by_xy", (q) => q.eq("x", px.x).eq("y", px.y))
+        .withIndex("by_canvas_xy", (q) =>
+          q.eq("canvasId", canvasId).eq("x", px.x).eq("y", px.y)
+        )
         .unique();
 
-      const price = getPixelPrice();
+      const price = existing ? existing.price * 2 : canvas.pixelPrice;
       totalCost += price;
       pixelDetails.push({
         ...px,
         price,
         existingId: existing?._id,
+        previousColor: existing?.color,
       });
     }
 
     if (user.credits < totalCost) {
-      throw new Error(
-        `Not enough credits. Need ${totalCost}, have ${user.credits}`
-      );
+      throw new Error("Not enough credits");
     }
 
     await ctx.db.patch(user._id, {
@@ -122,9 +233,10 @@ export const commit = mutation({
     });
 
     const now = Date.now();
+
     for (const px of pixelDetails) {
       if (px.existingId) {
-        await ctx.db.patch(px.existingId as any, {
+        await ctx.db.patch(px.existingId!, {
           color: px.color,
           price: px.price,
           userId: user._id,
@@ -132,6 +244,7 @@ export const commit = mutation({
         });
       } else {
         await ctx.db.insert("pixels", {
+          canvasId,
           x: px.x,
           y: px.y,
           color: px.color,
@@ -140,7 +253,23 @@ export const commit = mutation({
           updatedAt: now,
         });
       }
+
+      changes.push({
+        x: px.x,
+        y: px.y,
+        color: px.color,
+        previousColor: px.previousColor,
+      });
     }
+
+    await ctx.db.insert("transactions", {
+      canvasId,
+      userId: user._id,
+      timestamp: now,
+      changes,
+    });
+
+    await maybeCreateNextCanvas(ctx, canvas);
 
     return { totalCost, remaining: user.credits - totalCost };
   },
