@@ -26,6 +26,103 @@ type CanvasProps = {
   onEdgeSwipe?: (direction: "next" | "prev") => void;
 };
 
+function drawGrid(
+  ctx: CanvasRenderingContext2D,
+  pixelMap: Map<string, string>,
+  gridW: number,
+  gridH: number,
+  cellSize: number,
+  gap: number,
+  hovered: { x: number; y: number } | null,
+  selectedColor: string,
+  translate: { x: number; y: number },
+  scale: number,
+  viewportW: number,
+  viewportH: number,
+) {
+  const dpr = window.devicePixelRatio || 1;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, viewportW, viewportH);
+  ctx.translate(translate.x, translate.y);
+  ctx.scale(scale, scale);
+
+  const step = cellSize + gap;
+  const invScale = 1 / scale;
+  const visLeft = -translate.x * invScale;
+  const visTop = -translate.y * invScale;
+  const visRight = visLeft + viewportW * invScale;
+  const visBottom = visTop + viewportH * invScale;
+
+  const startX = Math.max(0, Math.floor(visLeft / step));
+  const endX = Math.min(gridW, Math.ceil(visRight / step));
+  const startY = Math.max(0, Math.floor(visTop / step));
+  const endY = Math.min(gridH, Math.ceil(visBottom / step));
+
+  for (let y = startY; y < endY; y++) {
+    for (let x = startX; x < endX; x++) {
+      const px = x * step;
+      const py = y * step;
+      const key = `${x},${y}`;
+      const color = pixelMap.get(key);
+      const isHovered = hovered?.x === x && hovered?.y === y;
+
+      ctx.globalAlpha = isHovered && !color ? 0.7 : 1;
+      ctx.fillStyle = isHovered ? selectedColor : (color ?? "#ffffff");
+      ctx.fillRect(px, py, cellSize, cellSize);
+    }
+  }
+
+  ctx.globalAlpha = 0.08;
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 1 / scale;
+  ctx.beginPath();
+  const x0 = startX * step;
+  const x1 = endX * step;
+  const y0 = startY * step;
+  const y1 = endY * step;
+  for (let y = startY; y <= endY; y++) {
+    const py = y * step;
+    ctx.moveTo(x0, py);
+    ctx.lineTo(x1, py);
+  }
+  for (let x = startX; x <= endX; x++) {
+    const px = x * step;
+    ctx.moveTo(px, y0);
+    ctx.lineTo(px, y1);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function hitTest(
+  clientX: number,
+  clientY: number,
+  containerRect: DOMRect,
+  translate: { x: number; y: number },
+  scale: number,
+  cellSize: number,
+  gap: number,
+  gridW: number,
+  gridH: number,
+): { x: number; y: number } | null {
+  const localX = (clientX - containerRect.left - translate.x) / scale;
+  const localY = (clientY - containerRect.top - translate.y) / scale;
+  const step = cellSize + gap;
+  const gx = Math.floor(localX / step);
+  const gy = Math.floor(localY / step);
+  if (gx < 0 || gx >= gridW || gy < 0 || gy >= gridH) {
+    return null;
+  }
+  const inCellX = localX - gx * step;
+  const inCellY = localY - gy * step;
+  if (inCellX > cellSize || inCellY > cellSize) {
+    return null;
+  }
+  return { x: gx, y: gy };
+}
+
 export function Canvas({
   pixels,
   width,
@@ -34,7 +131,8 @@ export function Canvas({
   onPixelClick,
   onEdgeSwipe,
 }: CanvasProps) {
-  const [hoveredCell, setHoveredCell] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [scale, setScale] = useState(1);
@@ -65,6 +163,9 @@ export function Canvas({
   const [edgeSwipeFeedback, setEdgeSwipeFeedback] = useState<
     "next" | "prev" | null
   >(null);
+  const clickOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const rafRef = useRef(0);
+  const needsDrawRef = useRef(false);
 
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 8;
@@ -80,10 +181,14 @@ export function Canvas({
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      return;
+    }
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (!entry) return;
+      if (!entry) {
+        return;
+      }
       setContainerSize({
         width: entry.contentRect.width,
         height: entry.contentRect.height,
@@ -93,10 +198,12 @@ export function Canvas({
     return () => observer.disconnect();
   }, []);
 
-  const CELL_GAP = 1;
+  const CELL_GAP = 0;
 
   const baseCellSize = useMemo(() => {
-    if (!containerSize.width || !containerSize.height) return 24;
+    if (!containerSize.width || !containerSize.height) {
+      return 24;
+    }
     const totalGapX = CELL_GAP * Math.max(0, width - 1);
     const totalGapY = CELL_GAP * Math.max(0, height - 1);
     const availableWidth = Math.max(0, containerSize.width - totalGapX);
@@ -111,6 +218,14 @@ export function Canvas({
     }),
     [baseCellSize, height, width],
   );
+
+  const pixelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of pixels) {
+      map.set(`${p.x},${p.y}`, p.color);
+    }
+    return map;
+  }, [pixels]);
 
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
@@ -204,7 +319,9 @@ export function Canvas({
   );
 
   const resetView = useCallback(() => {
-    if (!containerSize.width || !containerSize.height) return;
+    if (!containerSize.width || !containerSize.height) {
+      return;
+    }
     const clamped = clampTranslate(0, 0, MIN_ZOOM);
     setScale(MIN_ZOOM);
     translateRef.current = clamped;
@@ -214,7 +331,9 @@ export function Canvas({
   const zoomBy = useCallback(
     (direction: 1 | -1) => {
       const container = containerRef.current;
-      if (!container) return;
+      if (!container) {
+        return;
+      }
       const rect = container.getBoundingClientRect();
       const focusX = rect.width / 2;
       const focusY = rect.height / 2;
@@ -241,8 +360,85 @@ export function Canvas({
     [onEdgeSwipe],
   );
 
+  const drawRef = useRef({
+    pixelMap,
+    width,
+    height,
+    baseCellSize,
+    selectedColor,
+  });
+  drawRef.current = {
+    pixelMap,
+    width,
+    height,
+    baseCellSize,
+    selectedColor,
+  };
+
+  const scheduleRedraw = useCallback(() => {
+    if (needsDrawRef.current) {
+      return;
+    }
+    needsDrawRef.current = true;
+    rafRef.current = requestAnimationFrame(() => {
+      needsDrawRef.current = false;
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        return;
+      }
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return;
+      }
+      const d = drawRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      drawGrid(
+        ctx,
+        d.pixelMap,
+        d.width,
+        d.height,
+        d.baseCellSize,
+        CELL_GAP,
+        hoveredCellRef.current,
+        d.selectedColor,
+        translateRef.current,
+        scaleRef.current,
+        canvas.width / dpr,
+        canvas.height / dpr,
+      );
+    });
+  }, []);
+
   useEffect(() => {
-    if (!containerSize.width || !containerSize.height) return;
+    const canvas = canvasRef.current;
+    if (!canvas || !containerSize.width || !containerSize.height) {
+      return;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(containerSize.width * dpr));
+    const h = Math.max(1, Math.round(containerSize.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    scheduleRedraw();
+  }, [containerSize.width, containerSize.height, scheduleRedraw]);
+
+  useEffect(() => {
+    scheduleRedraw();
+  }, [pixelMap, width, height, baseCellSize, selectedColor, translate, scale, scheduleRedraw]);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      needsDrawRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!containerSize.width || !containerSize.height) {
+      return;
+    }
     const clamped = clampTranslate(
       translateRef.current.x,
       translateRef.current.y,
@@ -266,7 +462,9 @@ export function Canvas({
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      return;
+    }
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       const rect = container.getBoundingClientRect();
@@ -280,10 +478,14 @@ export function Canvas({
   }, [zoomTo]);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== undefined && event.button !== 0) return;
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
     const pointer = { x: event.clientX, y: event.clientY };
     const pointers = pointersRef.current;
     pointers.set(event.pointerId, pointer);
+
+    clickOriginRef.current = { x: event.clientX, y: event.clientY };
 
     const allowSwipe =
       event.pointerType === "touch" &&
@@ -328,7 +530,32 @@ export function Canvas({
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const pointers = pointersRef.current;
-    if (!pointers.has(event.pointerId)) return;
+
+    if (event.pointerType !== "touch") {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const cell = hitTest(
+          event.clientX,
+          event.clientY,
+          rect,
+          translateRef.current,
+          scaleRef.current,
+          baseCellSize,
+          CELL_GAP,
+          width,
+          height,
+        );
+        const prev = hoveredCellRef.current;
+        if (cell?.x !== prev?.x || cell?.y !== prev?.y) {
+          hoveredCellRef.current = cell;
+          scheduleRedraw();
+        }
+      }
+    }
+
+    if (!pointers.has(event.pointerId)) {
+      return;
+    }
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (pointers.size === 2 && pinchRef.current) {
@@ -426,6 +653,38 @@ export function Canvas({
       allowSwipeRef.current = false;
     }
 
+    const origin = clickOriginRef.current;
+    if (
+      origin &&
+      !edgeSwipeTriggeredRef.current &&
+      !pinchRef.current
+    ) {
+      const dist = Math.hypot(
+        event.clientX - origin.x,
+        event.clientY - origin.y,
+      );
+      if (dist < 4) {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (rect) {
+          const cell = hitTest(
+            event.clientX,
+            event.clientY,
+            rect,
+            translateRef.current,
+            scaleRef.current,
+            baseCellSize,
+            CELL_GAP,
+            width,
+            height,
+          );
+          if (cell) {
+            onPixelClick(cell.x, cell.y);
+          }
+        }
+      }
+    }
+    clickOriginRef.current = null;
+
     if (event.pointerType === "touch") {
       const rect = containerRef.current?.getBoundingClientRect();
       const tapX = event.clientX - (rect?.left ?? 0);
@@ -449,42 +708,12 @@ export function Canvas({
     zoomTo(scaleRef.current * ZOOM_STEP, focusX, focusY);
   };
 
-  // Build lookup map for pixel colors
-  const pixelMap = new Map<string, string>();
-  for (const p of pixels) {
-    pixelMap.set(`${p.x},${p.y}`, p.color);
-  }
-
-  const cells = [];
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const key = `${x},${y}`;
-      const color = pixelMap.get(key);
-      const isHovered = hoveredCell === key;
-      const borderColor = color ?? "#e5e5e5";
-
-      cells.push(
-        <div
-          key={key}
-          onClick={() => onPixelClick(x, y)}
-          onMouseEnter={() => setHoveredCell(key)}
-          onMouseLeave={() => setHoveredCell(null)}
-          style={{
-            width: baseCellSize,
-            height: baseCellSize,
-            backgroundColor: isHovered ? selectedColor : (color ?? "#ffffff"),
-            opacity: isHovered && !color ? 0.7 : 1,
-            cursor: "pointer",
-            border: "1.5px solid",
-            borderColor,
-            borderRadius: 2,
-            transition: "background-color 0.1s",
-            boxSizing: "border-box",
-          }}
-        />,
-      );
+  const handleMouseLeave = () => {
+    if (hoveredCellRef.current) {
+      hoveredCellRef.current = null;
+      scheduleRedraw();
     }
-  }
+  };
 
   return (
     <div
@@ -494,6 +723,7 @@ export function Canvas({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onDoubleClick={handleDoubleClick}
+      onMouseLeave={handleMouseLeave}
       className={`relative h-full w-full overflow-hidden select-none touch-none ${isInteracting ? "cursor-grabbing" : "cursor-grab"} ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
       <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full border bg-background/90 px-2 py-1 text-muted-foreground shadow-sm">
@@ -527,22 +757,16 @@ export function Canvas({
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div
+      <canvas
+        ref={canvasRef}
         style={{
           position: "absolute",
-          left: 0,
-          top: 0,
-          transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
-          transformOrigin: "0 0",
-          width: baseSize.width,
-          height: baseSize.height,
-          display: "grid",
-          gridTemplateColumns: `repeat(${width}, ${baseCellSize}px)`,
-          gap: CELL_GAP,
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "none",
         }}
-      >
-        {cells}
-      </div>
+      />
     </div>
   );
 }
