@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
+import { CanvasReels } from "./CanvasReels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -299,19 +300,28 @@ export default function CanvasPage() {
         isCommitting={isCommitting}
         showFooter={isAuthenticated}
       >
-        <div className="flex min-h-full items-center justify-center p-6">
-          {isLoadingUser ? (
-            <div className="text-sm text-muted-foreground">Načítám uživatele…</div>
-          ) : (
-            <Canvas
-              pixels={displayPixels}
-              width={GRID_WIDTH}
-              height={GRID_HEIGHT}
-              selectedColor={selectedColor}
-              onPixelClick={handlePixelClick}
-            />
+        <CanvasReels
+          count={2}
+          renderItem={(index) => (
+            <div className="flex h-full w-full items-start justify-center p-6 box-border overflow-hidden">
+              {isLoadingUser ? (
+                <div className="text-sm text-muted-foreground">
+                  Načítám uživatele…
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 overflow-hidden">
+                  <Canvas
+                    pixels={displayPixels}
+                    width={GRID_WIDTH}
+                    height={GRID_HEIGHT}
+                    selectedColor={selectedColor}
+                    onPixelClick={handlePixelClick}
+                  />
+                </div>
+              )}
+            </div>
           )}
-        </div>
+        />
       </CanvasPageLayout>
 
       {loginOpen && (

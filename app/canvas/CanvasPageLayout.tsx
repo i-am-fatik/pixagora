@@ -113,7 +113,7 @@ export function CanvasPageLayout({
         {Children.toArray(children).map((child, index) => (
           <section
             key={`canvas-section-${index}`}
-            className="min-h-full"
+            className="h-full w-full"
           >
             {child}
           </section>
