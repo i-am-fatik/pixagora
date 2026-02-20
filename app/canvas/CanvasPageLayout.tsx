@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Check, Coins, Redo2, Undo2 } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
-const LOGO_SQUARES = ["#000000", "#7F7F7F", "#FFD400", "#F7931A"];
+const LOGO_SQUARES = ["var(--logo-primary)", "#7F7F7F", "#FFD400", "#F7931A"];
 
 type CanvasPageLayoutProps = {
   children: ReactNode;
@@ -113,7 +113,7 @@ export function CanvasPageLayout({
         {Children.toArray(children).map((child, index) => (
           <section
             key={`canvas-section-${index}`}
-            className="min-h-full"
+            className="h-full w-full"
           >
             {child}
           </section>

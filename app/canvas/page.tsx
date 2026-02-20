@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
+import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const GRID_WIDTH = 10;
-const GRID_HEIGHT = 10;
+export const GRID_WIDTH = 20;
+export const GRID_HEIGHT = 20;
 const PIXEL_PRICE = 1;
+const PAGE_UNLOCK_THRESHOLD = 0.2;
+const PAGE_HARD_CAP = 4;
 
 const COLORS = [
   "#000000", // black
@@ -48,7 +58,10 @@ const initialPendingState: PendingState = {
   redo: [],
 };
 
-function pendingReducer(state: PendingState, action: PendingAction): PendingState {
+function pendingReducer(
+  state: PendingState,
+  action: PendingAction,
+): PendingState {
   switch (action.type) {
     case "apply": {
       const prevPending = state.pending[action.key];
@@ -125,11 +138,10 @@ export default function CanvasPage() {
   );
   const loginDialogRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const reelsRef = useRef<CanvasReelsHandle | null>(null);
+  const [activeReelIndex, setActiveReelIndex] = useState(0);
 
-  const user = useQuery(
-    api.users.getByToken,
-    loggedIn ? { token } : "skip",
-  );
+  const user = useQuery(api.users.getByToken, loggedIn ? { token } : "skip");
   const pixels = useQuery(api.pixels.getAll);
   const commitPixels = useMutation(api.pixels.commit);
 
@@ -202,7 +214,9 @@ export default function CanvasPage() {
       dialog.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
       ),
-    ).filter((el) => !el.hasAttribute("disabled") && !el.getAttribute("aria-hidden"));
+    ).filter(
+      (el) => !el.hasAttribute("disabled") && !el.getAttribute("aria-hidden"),
+    );
     if (focusable.length === 0) {
       event.preventDefault();
       return;
@@ -235,25 +249,75 @@ export default function CanvasPage() {
     return map;
   }, [pixels]);
 
-  const displayPixels = useMemo(() => {
+  const combinedPixelMap = useMemo(() => {
     const map = new Map(serverPixelMap);
     Object.entries(pendingState.pending).forEach(([key, color]) => {
       map.set(key, color);
     });
-    return Array.from(map.entries()).map(([key, color]) => {
-      const [x, y] = key.split(",").map(Number);
-      return { x, y, color };
-    });
+    return map;
   }, [serverPixelMap, pendingState.pending]);
+
+  const totalPages = useMemo(() => {
+    const counts = Array.from({ length: PAGE_HARD_CAP }, () => 0);
+    serverPixelMap.forEach((_color, key) => {
+      const [, yRaw] = key.split(",");
+      const y = Number(yRaw);
+      if (!Number.isFinite(y)) return;
+      const pageIndex = Math.floor(y / GRID_HEIGHT);
+      if (pageIndex >= 0 && pageIndex < PAGE_HARD_CAP) {
+        counts[pageIndex] += 1;
+      }
+    });
+
+    const pageSize = GRID_WIDTH * GRID_HEIGHT;
+    let pages = 1;
+    while (pages < PAGE_HARD_CAP) {
+      const fill = counts[pages - 1] / pageSize;
+      if (fill >= PAGE_UNLOCK_THRESHOLD) {
+        pages += 1;
+      } else {
+        break;
+      }
+    }
+    return pages;
+  }, [serverPixelMap]);
+
+  const pixelsByPage = useMemo(() => {
+    const pages = Array.from(
+      { length: totalPages },
+      () =>
+        [] as {
+          x: number;
+          y: number;
+          color: string;
+        }[],
+    );
+    combinedPixelMap.forEach((color, key) => {
+      const [xRaw, yRaw] = key.split(",");
+      const x = Number(xRaw);
+      const y = Number(yRaw);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      const pageIndex = Math.floor(y / GRID_HEIGHT);
+      if (pageIndex < 0 || pageIndex >= totalPages) return;
+      pages[pageIndex].push({
+        x,
+        y: y - pageIndex * GRID_HEIGHT,
+        color,
+      });
+    });
+    return pages;
+  }, [combinedPixelMap, totalPages]);
 
   const pendingCount = Object.keys(pendingState.pending).length;
   const totalCost = pendingCount * PIXEL_PRICE;
 
-  const handlePixelClick = (x: number, y: number) => {
+  const handlePixelClick = (pageIndex: number, x: number, y: number) => {
     if (!isAuthenticated) return;
-    const key = `${x},${y}`;
+    const globalY = y + pageIndex * GRID_HEIGHT;
+    const key = `${x},${globalY}`;
     const serverColor = serverPixelMap.get(key);
-    const nextPending = selectedColor === serverColor ? undefined : selectedColor;
+    const nextPending =
+      selectedColor === serverColor ? undefined : selectedColor;
     dispatch({ type: "apply", key, nextPending });
   };
 
@@ -275,6 +339,18 @@ export default function CanvasPage() {
       setIsCommitting(false);
     }
   };
+
+  const handleEdgeSwipe = useCallback(
+    (direction: "next" | "prev") => {
+      if (totalPages <= 1) return;
+      if (direction === "next") {
+        reelsRef.current?.next();
+      } else {
+        reelsRef.current?.prev();
+      }
+    },
+    [totalPages],
+  );
 
   return (
     <>
@@ -299,19 +375,34 @@ export default function CanvasPage() {
         isCommitting={isCommitting}
         showFooter={isAuthenticated}
       >
-        <div className="flex min-h-full items-center justify-center p-6">
-          {isLoadingUser ? (
-            <div className="text-sm text-muted-foreground">Načítám uživatele…</div>
-          ) : (
-            <Canvas
-              pixels={displayPixels}
-              width={GRID_WIDTH}
-              height={GRID_HEIGHT}
-              selectedColor={selectedColor}
-              onPixelClick={handlePixelClick}
-            />
+        <CanvasReels
+          ref={reelsRef}
+          count={totalPages}
+          enableTouchSwipe={false}
+          onIndexChange={setActiveReelIndex}
+          renderItem={(index) => (
+            <div className="flex h-full w-full items-center justify-center p-6 box-border overflow-hidden">
+              {isLoadingUser ? (
+                <div className="text-sm text-muted-foreground">
+                  Načítám uživatele…
+                </div>
+              ) : (
+                <div className="flex h-full w-full items-center justify-center overflow-hidden">
+                  <Canvas
+                    pixels={pixelsByPage[index] ?? []}
+                    width={GRID_WIDTH}
+                    height={GRID_HEIGHT}
+                    selectedColor={selectedColor}
+                    onPixelClick={(x, y) => handlePixelClick(index, x, y)}
+                    onEdgeSwipe={
+                      index === activeReelIndex ? handleEdgeSwipe : undefined
+                    }
+                  />
+                </div>
+              )}
+            </div>
           )}
-        </div>
+        />
       </CanvasPageLayout>
 
       {loginOpen && (
@@ -354,10 +445,7 @@ export default function CanvasPage() {
               >
                 Přihlásit
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setLoginOpen(false)}
-              >
+              <Button variant="secondary" onClick={() => setLoginOpen(false)}>
                 Zavřít
               </Button>
             </div>

@@ -8,6 +8,7 @@
   :root {
     --background: 0 0% 100%;
     --foreground: 20 14.3% 4.1%;
+    --logo-primary: #000000;
     --card: 0 0% 100%;
     --card-foreground: 20 14.3% 4.1%;
     --popover: 0 0% 100%;
@@ -35,6 +36,7 @@
   .dark {
     --background: 20 14.3% 4.1%;
     --foreground: 60 9.1% 97.8%;
+    --logo-primary: #ffffff;
     --card: 20 14.3% 4.1%;
     --card-foreground: 60 9.1% 97.8%;
     --popover: 20 14.3% 4.1%;
@@ -89,4 +91,70 @@
 
 .color-scroll::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground) / 0.55);
+}
+
+.edge-swipe-next {
+  animation: edgeSwipeNext 220ms ease-out;
+  will-change: transform;
+}
+
+.edge-swipe-prev {
+  animation: edgeSwipePrev 220ms ease-out;
+  will-change: transform;
+}
+
+@keyframes edgeSwipeNext {
+  0% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-8px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes edgeSwipePrev {
+  0% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(8px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-swipe-next,
+  .edge-swipe-prev {
+    animation: none;
+  }
+}
+
+.reels-hint-arrow {
+  animation: reelsHintArrow 1.4s ease-in-out infinite;
+}
+
+@keyframes reelsHintArrow {
+  0% {
+    opacity: 0.4;
+    transform: translateY(6px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.4;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reels-hint-arrow {
+    animation: none;
+  }
 }
