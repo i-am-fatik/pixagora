@@ -16,7 +16,7 @@ import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export const GRID_WIDTH = 20;
+export const GRID_WIDTH = 10;
 export const GRID_HEIGHT = 10;
 const PIXEL_PRICE = 1;
 const PAGE_UNLOCK_THRESHOLD = 0.2;
