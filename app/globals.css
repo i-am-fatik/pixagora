@@ -131,3 +131,28 @@
     animation: none;
   }
 }
+
+.reels-hint-arrow {
+  animation: reelsHintArrow 1.4s ease-in-out infinite;
+}
+
+@keyframes reelsHintArrow {
+  0% {
+    opacity: 0.4;
+    transform: translateY(6px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.4;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reels-hint-arrow {
+    animation: none;
+  }
+}

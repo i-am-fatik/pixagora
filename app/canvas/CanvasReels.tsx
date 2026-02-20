@@ -27,6 +27,9 @@ type CanvasReelsProps = {
   enableTouchSwipe?: boolean;
 };
 
+const HINT_STORAGE_KEY = "pixagora-reels-hint-dismissed";
+const HINT_DELAY_MS = 1800;
+
 export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   function CanvasReels(
     {
@@ -45,6 +48,8 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [containerHeight, setContainerHeight] = useState(0);
+  const [hintDismissed, setHintDismissed] = useState(false);
+  const [showHint, setShowHint] = useState(false);
   const startYRef = useRef(0);
   const activeIndexRef = useRef(activeIndex);
   const dragOffsetRef = useRef(0);
@@ -102,6 +107,38 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
       updateIndex(count - 1);
     }
   }, [count, updateIndex]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const dismissed = window.localStorage.getItem(HINT_STORAGE_KEY) === "1";
+      setHintDismissed(dismissed);
+    } catch {
+      // ignore storage access errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasMultiple || activeIndex !== 0 || hintDismissed) {
+      setShowHint(false);
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setShowHint(true);
+    }, HINT_DELAY_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeIndex, hasMultiple, hintDismissed]);
+
+  useEffect(() => {
+    if (activeIndex === 0 || hintDismissed) return;
+    setHintDismissed(true);
+    setShowHint(false);
+    try {
+      window.localStorage.setItem(HINT_STORAGE_KEY, "1");
+    } catch {
+      // ignore storage access errors
+    }
+  }, [activeIndex, hintDismissed]);
 
   const setOffset = (value: number) => {
     dragOffsetRef.current = value;
@@ -194,6 +231,12 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     [activeIndex, count],
   );
 
+  const handleLabelClick = () => {
+    if (!hasMultiple) return;
+    const nextIndex = activeIndexRef.current + 1;
+    goToIndex(nextIndex > count - 1 ? 0 : nextIndex);
+  };
+
   const touchHandlers = touchEnabled
     ? {
         onTouchStart: (event: React.TouchEvent<HTMLDivElement>) =>
@@ -211,9 +254,15 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
       className="relative h-full w-full overflow-hidden touch-none select-none"
       {...touchHandlers}
     >
-      <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-full border bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+      <button
+        type="button"
+        onClick={handleLabelClick}
+        disabled={!hasMultiple}
+        className="absolute left-4 top-4 z-10 rounded-full border bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition hover:text-foreground disabled:opacity-60"
+        aria-label="Přepnout plátno"
+      >
         {reelLabel}
-      </div>
+      </button>
 
       <div className="absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-2 md:flex">
         <button
@@ -235,6 +284,22 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
           <ChevronDown className="h-4 w-4" />
         </button>
       </div>
+
+      {showHint && hasMultiple && activeIndex === 0 && (
+        <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full bg-background/65 px-3 py-2 text-[11px] font-medium text-muted-foreground shadow-sm md:hidden">
+          <div className="flex flex-col items-center leading-none text-muted-foreground/80">
+            <ChevronUp
+              className="h-4 w-4 reels-hint-arrow"
+              style={{ animationDelay: "0ms" }}
+            />
+            <ChevronUp
+              className="-mt-1 h-4 w-4 reels-hint-arrow"
+              style={{ animationDelay: "200ms" }}
+            />
+          </div>
+          <span className="text-muted-foreground/80">Potáhněte pro další plátno</span>
+        </div>
+      )}
 
       <div
         className={`flex h-full w-full flex-col ${isDragging ? "" : "transition-transform duration-300 ease-out"}`}
