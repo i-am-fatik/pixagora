@@ -1,21 +1,43 @@
 "use client";
 
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ReactNode,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+export type CanvasReelsHandle = {
+  next: () => void;
+  prev: () => void;
+  goTo: (index: number) => void;
+  getIndex: () => number;
+};
 
 type CanvasReelsProps = {
   count: number;
   renderItem: (index: number) => ReactNode;
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
+  enableTouchSwipe?: boolean;
 };
 
-export function CanvasReels({
-  count,
-  renderItem,
-  initialIndex = 0,
-  onIndexChange,
-}: CanvasReelsProps) {
+export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
+  function CanvasReels(
+    {
+      count,
+      renderItem,
+      initialIndex = 0,
+      onIndexChange,
+      enableTouchSwipe = true,
+    },
+    ref,
+  ) {
   const [activeIndex, setActiveIndex] = useState(() => {
     const safeIndex = Math.max(0, Math.min(count - 1, initialIndex));
     return Number.isFinite(safeIndex) ? safeIndex : 0;
@@ -31,6 +53,7 @@ export function CanvasReels({
   const heightRef = useRef(0);
 
   const hasMultiple = count > 1;
+  const touchEnabled = enableTouchSwipe && hasMultiple;
 
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
@@ -124,6 +147,17 @@ export function CanvasReels({
     [updateIndex],
   );
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      next: () => goToIndex(activeIndexRef.current + 1),
+      prev: () => goToIndex(activeIndexRef.current - 1),
+      goTo: (index: number) => goToIndex(index),
+      getIndex: () => activeIndexRef.current,
+    }),
+    [goToIndex],
+  );
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!hasMultiple) return;
@@ -160,14 +194,22 @@ export function CanvasReels({
     [activeIndex, count],
   );
 
+  const touchHandlers = touchEnabled
+    ? {
+        onTouchStart: (event: React.TouchEvent<HTMLDivElement>) =>
+          handleStart(event.touches[0]?.clientY ?? 0),
+        onTouchMove: (event: React.TouchEvent<HTMLDivElement>) =>
+          handleMove(event.touches[0]?.clientY ?? 0),
+        onTouchEnd: handleEnd,
+        onTouchCancel: handleEnd,
+      }
+    : {};
+
   return (
     <div
       ref={containerRef}
       className="relative h-full w-full overflow-hidden touch-none select-none"
-      onTouchStart={(event) => handleStart(event.touches[0]?.clientY ?? 0)}
-      onTouchMove={(event) => handleMove(event.touches[0]?.clientY ?? 0)}
-      onTouchEnd={handleEnd}
-      onTouchCancel={handleEnd}
+      {...touchHandlers}
     >
       <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-full border bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
         {reelLabel}
@@ -206,4 +248,5 @@ export function CanvasReels({
       </div>
     </div>
   );
-}
+  },
+);

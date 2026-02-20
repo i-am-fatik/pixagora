@@ -1,18 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
-import { CanvasReels } from "./CanvasReels";
+import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export const GRID_WIDTH = 10;
+export const GRID_WIDTH = 20;
 export const GRID_HEIGHT = 10;
 const PIXEL_PRICE = 1;
-const PAGE_UNLOCK_THRESHOLD = 0.1;
+const PAGE_UNLOCK_THRESHOLD = 0.2;
 const PAGE_HARD_CAP = 4;
 
 const COLORS = [
@@ -131,6 +138,8 @@ export default function CanvasPage() {
   );
   const loginDialogRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const reelsRef = useRef<CanvasReelsHandle | null>(null);
+  const [activeReelIndex, setActiveReelIndex] = useState(0);
 
   const user = useQuery(api.users.getByToken, loggedIn ? { token } : "skip");
   const pixels = useQuery(api.pixels.getAll);
@@ -331,6 +340,18 @@ export default function CanvasPage() {
     }
   };
 
+  const handleEdgeSwipe = useCallback(
+    (direction: "next" | "prev") => {
+      if (totalPages <= 1) return;
+      if (direction === "next") {
+        reelsRef.current?.next();
+      } else {
+        reelsRef.current?.prev();
+      }
+    },
+    [totalPages],
+  );
+
   return (
     <>
       <CanvasPageLayout
@@ -355,21 +376,27 @@ export default function CanvasPage() {
         showFooter={isAuthenticated}
       >
         <CanvasReels
+          ref={reelsRef}
           count={totalPages}
+          enableTouchSwipe={false}
+          onIndexChange={setActiveReelIndex}
           renderItem={(index) => (
-            <div className="flex h-full w-full items-start justify-center p-6 box-border overflow-hidden">
+            <div className="flex h-full w-full items-center justify-center p-6 box-border overflow-hidden">
               {isLoadingUser ? (
                 <div className="text-sm text-muted-foreground">
                   Načítám uživatele…
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-3 overflow-hidden">
+                <div className="flex h-full w-full items-center justify-center overflow-hidden">
                   <Canvas
                     pixels={pixelsByPage[index] ?? []}
                     width={GRID_WIDTH}
                     height={GRID_HEIGHT}
                     selectedColor={selectedColor}
                     onPixelClick={(x, y) => handlePixelClick(index, x, y)}
+                    onEdgeSwipe={
+                      index === activeReelIndex ? handleEdgeSwipe : undefined
+                    }
                   />
                 </div>
               )}
