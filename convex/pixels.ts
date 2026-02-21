@@ -1,6 +1,7 @@
 import { query, mutation, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+import { nextPixelPrice } from "./pricing";
 
 const MAX_BATCH_SIZE = 500;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -137,7 +138,7 @@ export const commit = mutation({
         continue;
       }
 
-      const price = existing ? existing.price + 1 : canvas.pixelPrice;
+      const price = nextPixelPrice(canvas.pixelPrice, existing?.price);
       totalCost += price;
       pixelDetails.push({
         ...px,

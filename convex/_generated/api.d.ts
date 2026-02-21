@@ -12,6 +12,7 @@ import type * as canvases from "../canvases.js";
 import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as pixels from "../pixels.js";
+import type * as pricing from "../pricing.js";
 import type * as seed from "../seed.js";
 import type * as users from "../users.js";
 import type * as webhook_utils from "../webhook_utils.js";
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   history: typeof history;
   http: typeof http;
   pixels: typeof pixels;
+  pricing: typeof pricing;
   seed: typeof seed;
   users: typeof users;
   webhook_utils: typeof webhook_utils;

@@ -13,6 +13,7 @@ import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
 import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
+import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -380,7 +381,7 @@ export default function CanvasPage() {
     let cost = 0;
     for (const key of Object.keys(effectivePending)) {
       const existing = serverPixelMap.get(key);
-      cost += existing ? existing.price + 1 : pixelPrice;
+      cost += nextPixelPrice(pixelPrice, existing?.price);
     }
     return cost;
   }, [effectivePending, serverPixelMap, pixelPrice]);
