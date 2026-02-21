@@ -70,12 +70,28 @@ export const create = internalMutation({
   },
 });
 
+export const DEFAULT_COLORS = [
+  "#000000",
+  "#7F7F7F",
+  "#FFFFFF",
+  "#FFD400",
+  "#F7931A",
+  "#00AEEF",
+  "#EC008C",
+  "#0057B8",
+  "#00A651",
+];
+
 const GRAYSCALE_COLORS = [
   "#000000",
-  "#333333",
-  "#666666",
-  "#999999",
-  "#CCCCCC",
+  "#1C1C1C",
+  "#383838",
+  "#555555",
+  "#717171",
+  "#8E8E8E",
+  "#AAAAAA",
+  "#C6C6C6",
+  "#E3E3E3",
   "#FFFFFF",
 ];
 
@@ -105,6 +121,7 @@ export const setEnforceColors = internalMutation({
   args: {
     canvasId: v.id("canvases"),
     enforceColors: v.boolean(),
+    grayscale: v.boolean(),
   },
   handler: async (ctx, args) => {
     const canvas = await ctx.db.get(args.canvasId);
@@ -112,7 +129,12 @@ export const setEnforceColors = internalMutation({
       throw new Error("Canvas not found");
     }
 
-    await ctx.db.patch(args.canvasId, { enforceColors: args.enforceColors });
-    return { canvasId: args.canvasId, enforceColors: args.enforceColors };
+    const patch: { enforceColors: boolean; colors: string[] } = {
+      enforceColors: args.enforceColors,
+      colors: args.grayscale ? GRAYSCALE_COLORS : DEFAULT_COLORS,
+    };
+
+    await ctx.db.patch(args.canvasId, patch);
+    return { canvasId: args.canvasId, enforceColors: args.enforceColors, colors: patch.colors };
   },
 });

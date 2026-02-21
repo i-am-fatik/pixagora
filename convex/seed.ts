@@ -1,6 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { computeCredits, findOrCreateUser } from "./credits";
+import { DEFAULT_COLORS } from "./canvases";
 
 const TABLES_TO_CLEAR = [
   "pixels",
@@ -9,18 +10,6 @@ const TABLES_TO_CLEAR = [
   "payments",
   "users",
 ] as const;
-
-const DEFAULT_COLORS = [
-  "#000000",
-  "#7F7F7F",
-  "#FFFFFF",
-  "#FFD400",
-  "#F7931A",
-  "#00AEEF",
-  "#EC008C",
-  "#0057B8",
-  "#00A651",
-];
 
 export const clearAll = internalMutation({
   args: {},

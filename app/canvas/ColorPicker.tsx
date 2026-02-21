@@ -13,12 +13,14 @@ type ColorPickerProps = {
   colors: string[];
   selectedColor: string;
   onSelectColor: (color: string) => void;
+  enforceColors?: boolean;
 };
 
 export function ColorPicker({
   colors,
   selectedColor,
   onSelectColor,
+  enforceColors = false,
 }: ColorPickerProps) {
   const eyeDropperSupported = useSyncExternalStore(
     subscribeNoop,
@@ -74,39 +76,41 @@ export function ColorPicker({
           </button>
         ))}
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="hidden h-5 w-px bg-muted-foreground/30 sm:inline-block" />
-        <button
-          type="button"
-          onClick={handleEyeDropper}
-          disabled={!eyeDropperSupported}
-          title={
-            eyeDropperSupported
-              ? "Eyedropper"
-              : "Eyedropper není v tomto prohlížeči dostupný"
-          }
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 sm:h-9 sm:w-9"
-          aria-label="Eyedropper"
-        >
-          <Pipette className="h-4 w-4" />
-        </button>
-        <label className="relative h-8 w-8 sm:h-9 sm:w-9">
-          <span
-            className="absolute inset-0 rounded-full border-2"
-            style={{
-              backgroundColor: selectedColor,
-              borderColor: "#111111",
-            }}
-          />
-          <input
-            type="color"
-            value={selectedColor}
-            onChange={(event) => onSelectColor(event.target.value)}
-            aria-label="RGB picker"
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-          />
-        </label>
-      </div>
+      {!enforceColors && (
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="hidden h-5 w-px bg-muted-foreground/30 sm:inline-block" />
+          <button
+            type="button"
+            onClick={handleEyeDropper}
+            disabled={!eyeDropperSupported}
+            title={
+              eyeDropperSupported
+                ? "Eyedropper"
+                : "Eyedropper není v tomto prohlížeči dostupný"
+            }
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 sm:h-9 sm:w-9"
+            aria-label="Eyedropper"
+          >
+            <Pipette className="h-4 w-4" />
+          </button>
+          <label className="relative h-8 w-8 sm:h-9 sm:w-9">
+            <span
+              className="absolute inset-0 rounded-full border-2"
+              style={{
+                backgroundColor: selectedColor,
+                borderColor: "#111111",
+              }}
+            />
+            <input
+              type="color"
+              value={selectedColor}
+              onChange={(event) => onSelectColor(event.target.value)}
+              aria-label="RGB picker"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
+          </label>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,7 @@ type CanvasPageLayoutProps = {
   colors: string[];
   selectedColor: string;
   onSelectColor: (color: string) => void;
+  enforceColors?: boolean;
   changedCount: number;
   totalCost: number;
   onUndo: () => void;
@@ -46,6 +47,7 @@ export function CanvasPageLayout({
   colors,
   selectedColor,
   onSelectColor,
+  enforceColors = false,
   changedCount,
   totalCost,
   onUndo,
@@ -138,6 +140,7 @@ export function CanvasPageLayout({
                 colors={colors}
                 selectedColor={selectedColor}
                 onSelectColor={onSelectColor}
+                enforceColors={enforceColors}
               />
 
               <div className="flex items-center gap-1 shrink-0 sm:gap-2">

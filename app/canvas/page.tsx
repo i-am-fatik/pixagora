@@ -151,6 +151,7 @@ export default function CanvasPage() {
   const commitPixels = useMutation(api.pixels.commit);
 
   const colors = useMemo(() => activeCanvas?.colors ?? ["#000000"], [activeCanvas?.colors]);
+  const enforceColors = activeCanvas?.enforceColors ?? false;
   const gridWidth = activeCanvas?.width ?? 20;
   const gridHeight = activeCanvas?.height ?? 20;
   const pixelPrice = activeCanvas?.pixelPrice ?? 1;
@@ -199,11 +200,16 @@ export default function CanvasPage() {
   }, [pendingState]);
 
    
+  const selectedColorRef = useRef(selectedColor);
   useEffect(() => {
-    if (colors.length > 0 && !colors.includes(selectedColor)) {
+    selectedColorRef.current = selectedColor;
+  }, [selectedColor]);
+
+  useEffect(() => {
+    if (enforceColors && colors.length > 0 && !colors.includes(selectedColorRef.current)) {
       setSelectedColor(colors[0]);
     }
-  }, [colors, selectedColor, setSelectedColor]);
+  }, [colors, enforceColors, setSelectedColor]);
 
   const applyLogin = useCallback((nextToken: string) => {
     const trimmed = nextToken.trim();
@@ -462,6 +468,7 @@ export default function CanvasPage() {
         signInDisabled={false}
         showInvalidToken={invalidToken}
         colors={colors}
+        enforceColors={enforceColors}
         selectedColor={selectedColor}
         onSelectColor={setSelectedColor}
         changedCount={pendingCount}

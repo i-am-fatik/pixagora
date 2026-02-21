@@ -124,16 +124,20 @@ export const commit = mutation({
       ...new Map(pixels.map((px) => [`${px.x},${px.y}`, px])).values(),
     ];
 
-    for (const px of dedupedPixels) {
+    const filteredPixels = canvas.enforceColors
+      ? dedupedPixels.filter((px) => allowedColors.has(px.color.toLowerCase()))
+      : dedupedPixels;
+
+    if (filteredPixels.length === 0) {
+      return { committed: 0 };
+    }
+
+    for (const px of filteredPixels) {
       validateCoordinate(px.x, "x", canvas.width);
       validateCoordinate(px.y, "y", canvas.height);
 
       if (!HEX_COLOR_RE.test(px.color)) {
         throw new Error("Invalid color format");
-      }
-
-      if (canvas.enforceColors && !allowedColors.has(px.color.toLowerCase())) {
-        throw new Error(`Color ${px.color} not in canvas palette`);
       }
 
       const existing = await ctx.db
