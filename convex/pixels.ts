@@ -133,7 +133,11 @@ export const commit = mutation({
         )
         .unique();
 
-      const price = existing ? existing.price * 2 : canvas.pixelPrice;
+      if (existing?.color.toLowerCase() === px.color.toLowerCase()) {
+        continue;
+      }
+
+      const price = existing ? existing.price + 1 : canvas.pixelPrice;
       totalCost += price;
       pixelDetails.push({
         ...px,
@@ -141,6 +145,10 @@ export const commit = mutation({
         existingId: existing?._id,
         previousColor: existing?.color,
       });
+    }
+
+    if (pixelDetails.length === 0) {
+      return { totalCost: 0, remaining: user.credits };
     }
 
     if (user.credits < totalCost) {

@@ -32,7 +32,8 @@ type PendingAction =
   | { type: "apply"; key: string; nextPending?: string }
   | { type: "undo" }
   | { type: "redo" }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "load"; state: PendingState };
 
 const initialPendingState: PendingState = {
   pending: {},
@@ -102,6 +103,9 @@ function pendingReducer(
     case "reset": {
       return initialPendingState;
     }
+    case "load": {
+      return action.state;
+    }
     default:
       return state;
   }
@@ -112,7 +116,13 @@ export default function CanvasPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [invalidToken, setInvalidToken] = useState(false);
-  const [selectedColor, setSelectedColor] = useState("#000000");
+  const [selectedColor, setSelectedColorRaw] = useState(
+    () => localStorage.getItem("pixagora-color") ?? "#000000",
+  );
+  const setSelectedColor = useCallback((color: string) => {
+    setSelectedColorRaw(color);
+    localStorage.setItem("pixagora-color", color);
+  }, []);
   const [isCommitting, setIsCommitting] = useState(false);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
@@ -122,6 +132,8 @@ export default function CanvasPage() {
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const reelsRef = useRef<CanvasReelsHandle | null>(null);
   const [activeReelIndex, setActiveReelIndex] = useState(0);
+  const canvasIdRef = useRef<string | undefined>(undefined);
+  const skipSaveRef = useRef(true);
 
   const user = useQuery(api.users.getByToken, loggedIn ? { token } : "skip");
   const canvases = useQuery(api.canvases.getAll);
@@ -141,6 +153,48 @@ export default function CanvasPage() {
   const gridHeight = activeCanvas?.height ?? 20;
   const pixelPrice = activeCanvas?.pixelPrice ?? 1;
   const totalCanvases = canvases?.length ?? 0;
+
+  useEffect(() => {
+    if (!canvasId || canvasId === canvasIdRef.current) {
+      return;
+    }
+    canvasIdRef.current = canvasId;
+    skipSaveRef.current = true;
+    try {
+      const raw = localStorage.getItem(`pixagora-pending-${canvasId}`);
+      if (raw) {
+        const saved = JSON.parse(raw) as PendingState;
+        if (
+          saved &&
+          typeof saved.pending === "object" &&
+          Array.isArray(saved.history) &&
+          Array.isArray(saved.redo)
+        ) {
+          dispatch({ type: "load", state: saved });
+          return;
+        }
+      }
+    } catch {}
+    dispatch({ type: "reset" });
+  }, [canvasId]);
+
+  useEffect(() => {
+    if (skipSaveRef.current) {
+      skipSaveRef.current = false;
+      return;
+    }
+    const id = canvasIdRef.current;
+    if (!id) {
+      return;
+    }
+    try {
+      if (Object.keys(pendingState.pending).length === 0 && pendingState.history.length === 0) {
+        localStorage.removeItem(`pixagora-pending-${id}`);
+      } else {
+        localStorage.setItem(`pixagora-pending-${id}`, JSON.stringify(pendingState));
+      }
+    } catch {}
+  }, [pendingState]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -169,6 +223,13 @@ export default function CanvasPage() {
 
   const handleLogout = () => {
     localStorage.removeItem("pixagora-token");
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith("pixagora-pending-")) {
+        localStorage.removeItem(key);
+      }
+    }
+    canvasIdRef.current = undefined;
     setToken("");
     setLoggedIn(false);
     dispatch({ type: "reset" });
@@ -285,15 +346,26 @@ export default function CanvasPage() {
     return result;
   }, [combinedPixelMap]);
 
-  const pendingCount = Object.keys(pendingState.pending).length;
+  const effectivePending = useMemo(() => {
+    const result: Record<string, string> = {};
+    for (const [key, color] of Object.entries(pendingState.pending)) {
+      const serverColor = (serverPixelMap.get(key)?.color ?? "#ffffff").toLowerCase();
+      if (serverColor !== color.toLowerCase()) {
+        result[key] = color;
+      }
+    }
+    return result;
+  }, [pendingState.pending, serverPixelMap]);
+
+  const pendingCount = Object.keys(effectivePending).length;
   const totalCost = useMemo(() => {
     let cost = 0;
-    for (const key of Object.keys(pendingState.pending)) {
+    for (const key of Object.keys(effectivePending)) {
       const existing = serverPixelMap.get(key);
-      cost += existing ? existing.price * 2 : pixelPrice;
+      cost += existing ? existing.price + 1 : pixelPrice;
     }
     return cost;
-  }, [pendingState.pending, serverPixelMap, pixelPrice]);
+  }, [effectivePending, serverPixelMap, pixelPrice]);
 
   const handlePixelClick = (x: number, y: number) => {
     if (!isAuthenticated) {
@@ -301,13 +373,15 @@ export default function CanvasPage() {
     }
     const key = `${x},${y}`;
     const serverColor = serverPixelMap.get(key)?.color;
-    const visibleColor = pendingState.pending[key] ?? serverColor;
+    const visibleColor = (pendingState.pending[key] ?? serverColor ?? "#ffffff").toLowerCase();
 
-    if (selectedColor === visibleColor) {
+    if (selectedColor.toLowerCase() === visibleColor) {
       dispatch({ type: "apply", key, nextPending: undefined });
     } else {
       const nextPending =
-        selectedColor === serverColor ? undefined : selectedColor;
+        selectedColor.toLowerCase() === (serverColor ?? "#ffffff").toLowerCase()
+          ? undefined
+          : selectedColor;
       dispatch({ type: "apply", key, nextPending });
     }
   };
@@ -318,12 +392,15 @@ export default function CanvasPage() {
     }
     setIsCommitting(true);
     try {
-      const payload = Object.entries(pendingState.pending).map(
+      const payload = Object.entries(effectivePending).map(
         ([key, color]) => {
           const [x, y] = key.split(",").map(Number);
           return { x, y, color };
         },
       );
+      if (payload.length === 0) {
+        return;
+      }
       await commitPixels({ token, canvasId, pixels: payload });
       dispatch({ type: "reset" });
     } catch (error: any) {
@@ -333,15 +410,9 @@ export default function CanvasPage() {
     }
   };
 
-  const handleReelIndexChange = useCallback(
-    (index: number) => {
-      if (index !== activeReelIndex) {
-        dispatch({ type: "reset" });
-      }
-      setActiveReelIndex(index);
-    },
-    [activeReelIndex],
-  );
+  const handleReelIndexChange = useCallback((index: number) => {
+    setActiveReelIndex(index);
+  }, []);
 
   const handleEdgeSwipe = useCallback(
     (direction: "next" | "prev") => {
