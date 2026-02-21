@@ -17,9 +17,9 @@ export const addCredits = internalMutation({
   args: {
     userId: v.id("users"),
     credits: v.number(),
-    amountSats: v.number(),
+    amountCzk: v.number(),
   },
-  handler: async (ctx, { userId, credits, amountSats }) => {
+  handler: async (ctx, { userId, credits, amountCzk }) => {
     const user = await ctx.db.get(userId);
     if (!user) throw new Error("User not found");
 
@@ -29,7 +29,7 @@ export const addCredits = internalMutation({
 
     await ctx.db.insert("payments", {
       userId,
-      amountSats,
+      amountCzk,
       creditsDelta: credits,
       createdAt: Date.now(),
     });

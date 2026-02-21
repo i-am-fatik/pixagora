@@ -12,7 +12,6 @@ export default defineSchema({
 
   payments: defineTable({
     userId: v.id("users"),
-    amountSats: v.number(),
     creditsDelta: v.number(),
     createdAt: v.number(),
     source: v.optional(v.string()),
