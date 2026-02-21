@@ -468,6 +468,7 @@ export default function CanvasPage() {
         canCommit={isAuthenticated && pendingCount > 0 && !!canvasId}
         isCommitting={isCommitting}
         showFooter={isAuthenticated}
+        replayCanvasId={canvasId}
       >
         {totalCanvases === 0 ? (
           <div className="flex h-full w-full items-center justify-center">

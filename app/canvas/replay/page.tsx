@@ -161,7 +161,7 @@ function ReplayPageInner() {
           <div className="flex flex-1 items-center justify-center">
             {canvas && (
               <span className="text-sm font-medium text-muted-foreground">
-                {canvas.name} — Přehrávání
+                {canvas.name}
               </span>
             )}
           </div>

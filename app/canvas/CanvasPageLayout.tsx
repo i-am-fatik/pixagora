@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Children, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Redo2, Undo2 } from "lucide-react";
+import { Check, Coins, Play, Redo2, Undo2 } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
 const LOGO_SQUARES = ["var(--logo-primary)", "#7F7F7F", "#FFD400", "#F7931A"];
@@ -30,6 +30,7 @@ type CanvasPageLayoutProps = {
   canRedo: boolean;
   canCommit: boolean;
   isCommitting?: boolean;
+  replayCanvasId?: string;
 };
 
 export function CanvasPageLayout({
@@ -54,6 +55,7 @@ export function CanvasPageLayout({
   canRedo,
   canCommit,
   isCommitting = false,
+  replayCanvasId,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
 
@@ -96,6 +98,14 @@ export function CanvasPageLayout({
               <span className="text-xs font-medium text-destructive">
                 Neplatný token
               </span>
+            )}
+            {replayCanvasId && (
+              <Button size="sm" variant="outline" asChild>
+                <Link href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}>
+                  <Play className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Replay</span>
+                </Link>
+              </Button>
             )}
             <Button
               size="sm"
