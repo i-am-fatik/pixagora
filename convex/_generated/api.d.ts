@@ -9,6 +9,7 @@
  */
 
 import type * as canvases from "../canvases.js";
+import type * as credits from "../credits.js";
 import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as pixels from "../pixels.js";
@@ -26,6 +27,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   canvases: typeof canvases;
+  credits: typeof credits;
   history: typeof history;
   http: typeof http;
   pixels: typeof pixels;

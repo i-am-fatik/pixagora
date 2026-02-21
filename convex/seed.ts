@@ -1,5 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { findOrCreateUser } from "./credits";
 
 const TABLES_TO_CLEAR = [
   "pixels",
@@ -23,15 +24,6 @@ export const clearAll = internalMutation({
     return counts;
   },
 });
-
-function generateToken(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < 32; i++) {
-    token += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return token;
-}
 
 const DEMO_USERS = [
   { email: "alice@pixagora.cz" },
@@ -63,19 +55,15 @@ export const seedDemo = internalMutation({
 
     const userResults = [];
     for (const { email } of DEMO_USERS) {
-      const existing = await ctx.db
-        .query("users")
-        .withIndex("by_email", (q) => q.eq("email", email))
-        .unique();
-
-      if (existing) {
-        await ctx.db.patch(existing._id, { credits: 1000 });
-        userResults.push({ email, token: existing.token, credits: 1000 });
-      } else {
-        const token = generateToken();
-        await ctx.db.insert("users", { email, token, credits: 1000 });
-        userResults.push({ email, token, credits: 1000 });
-      }
+      const user = await findOrCreateUser(ctx, email);
+      await ctx.db.insert("payments", {
+        userId: user._id,
+        amountSats: 0,
+        creditsDelta: 1000,
+        createdAt: Date.now(),
+        source: "seed",
+      });
+      userResults.push({ email, token: user.token, credits: 1000 });
     }
 
     const existingCanvases = await ctx.db.query("canvases").collect();

@@ -5,7 +5,6 @@ export default defineSchema({
   users: defineTable({
     email: v.string(),
     token: v.string(),
-    credits: v.number(),
   })
     .index("by_email", ["email"])
     .index("by_token", ["token"]),
@@ -20,7 +19,9 @@ export default defineSchema({
     amountCzk: v.optional(v.number()),
     reward: v.optional(v.string()),
     purchasedAt: v.optional(v.number()),
-  }).index("by_source_trxId", ["source", "trxId"]),
+  })
+    .index("by_source_trxId", ["source", "trxId"])
+    .index("by_user", ["userId"]),
 
   canvases: defineTable({
     name: v.string(),

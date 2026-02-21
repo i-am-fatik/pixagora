@@ -2,6 +2,7 @@ import { query, mutation, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { nextPixelPrice } from "./pricing";
+import { computeCredits } from "./credits";
 
 const MAX_BATCH_SIZE = 500;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -149,15 +150,21 @@ export const commit = mutation({
     }
 
     if (pixelDetails.length === 0) {
-      return { totalCost: 0, remaining: user.credits };
+      const balance = await computeCredits(ctx, user._id);
+      return { totalCost: 0, remaining: balance };
     }
 
-    if (user.credits < totalCost) {
+    const balance = await computeCredits(ctx, user._id);
+    if (balance < totalCost) {
       throw new Error("Not enough credits");
     }
 
-    await ctx.db.patch(user._id, {
-      credits: user.credits - totalCost,
+    await ctx.db.insert("payments", {
+      userId: user._id,
+      amountSats: 0,
+      creditsDelta: -totalCost,
+      createdAt: Date.now(),
+      source: "pixel-commit",
     });
 
     const now = Date.now();
@@ -199,6 +206,6 @@ export const commit = mutation({
 
     await maybeCreateNextCanvas(ctx, canvas);
 
-    return { totalCost, remaining: user.credits - totalCost };
+    return { totalCost, remaining: balance - totalCost };
   },
 });
