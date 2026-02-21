@@ -30,6 +30,7 @@ type CanvasPageLayoutProps = {
   canRedo: boolean;
   canCommit: boolean;
   isCommitting?: boolean;
+  toolControls?: ReactNode;
 };
 
 export function CanvasPageLayout({
@@ -54,6 +55,7 @@ export function CanvasPageLayout({
   canRedo,
   canCommit,
   isCommitting = false,
+  toolControls,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
 
@@ -124,11 +126,18 @@ export function CanvasPageLayout({
         <>
           <footer className="shrink-0 border-t bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
             <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-2 px-2 text-xs sm:h-16 sm:gap-3 sm:px-4">
-              <ColorPicker
-                colors={colors}
-                selectedColor={selectedColor}
-                onSelectColor={onSelectColor}
-              />
+              <div className="flex items-center gap-2">
+                <ColorPicker
+                  colors={colors}
+                  selectedColor={selectedColor}
+                  onSelectColor={onSelectColor}
+                />
+                {toolControls && (
+                  <div className="flex items-center gap-2">
+                    {toolControls}
+                  </div>
+                )}
+              </div>
 
               <div className="flex items-center gap-1 shrink-0 sm:gap-2">
                 {showInlineBubble && (

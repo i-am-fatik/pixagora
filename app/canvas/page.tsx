@@ -15,21 +15,30 @@ import { CanvasPageLayout } from "./CanvasPageLayout";
 import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useStampTool } from "./useStampTool";
+import { StampToolControls } from "./StampToolControls";
 
 type PendingChange = {
+  kind: "single";
   key: string;
   prevPending?: string;
   nextPending?: string;
 };
 
+type PendingChangeBatch = {
+  kind: "batch";
+  changes: PendingChange[];
+};
+
 type PendingState = {
   pending: Record<string, string>;
-  history: PendingChange[];
-  redo: PendingChange[];
+  history: Array<PendingChange | PendingChangeBatch>;
+  redo: Array<PendingChange | PendingChangeBatch>;
 };
 
 type PendingAction =
   | { type: "apply"; key: string; nextPending?: string }
+  | { type: "applyBatch"; changes: { key: string; nextPending?: string }[] }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "reset" }
@@ -61,8 +70,49 @@ function pendingReducer(
         pending: nextPendingMap,
         history: [
           ...state.history,
-          { key: action.key, prevPending, nextPending: action.nextPending },
+          {
+            kind: "single",
+            key: action.key,
+            prevPending,
+            nextPending: action.nextPending,
+          },
         ],
+        redo: [],
+      };
+    }
+    case "applyBatch": {
+      if (action.changes.length === 0) {
+        return state;
+      }
+      const deduped = new Map<string, string | undefined>();
+      for (const change of action.changes) {
+        deduped.set(change.key, change.nextPending);
+      }
+      const nextPendingMap = { ...state.pending };
+      const changes: PendingChange[] = [];
+      deduped.forEach((nextPending, key) => {
+        const prevPending = state.pending[key];
+        if (prevPending === nextPending) {
+          return;
+        }
+        if (nextPending === undefined) {
+          delete nextPendingMap[key];
+        } else {
+          nextPendingMap[key] = nextPending;
+        }
+        changes.push({
+          kind: "single",
+          key,
+          prevPending,
+          nextPending,
+        });
+      });
+      if (changes.length === 0) {
+        return state;
+      }
+      return {
+        pending: nextPendingMap,
+        history: [...state.history, { kind: "batch", changes }],
         redo: [],
       };
     }
@@ -72,10 +122,19 @@ function pendingReducer(
         return state;
       }
       const nextPendingMap = { ...state.pending };
-      if (last.prevPending === undefined) {
-        delete nextPendingMap[last.key];
+      const applyUndo = (change: PendingChange) => {
+        if (change.prevPending === undefined) {
+          delete nextPendingMap[change.key];
+        } else {
+          nextPendingMap[change.key] = change.prevPending;
+        }
+      };
+      if (last.kind === "batch") {
+        for (const change of last.changes) {
+          applyUndo(change);
+        }
       } else {
-        nextPendingMap[last.key] = last.prevPending;
+        applyUndo(last);
       }
       return {
         pending: nextPendingMap,
@@ -89,10 +148,19 @@ function pendingReducer(
         return state;
       }
       const nextPendingMap = { ...state.pending };
-      if (last.nextPending === undefined) {
-        delete nextPendingMap[last.key];
+      const applyRedo = (change: PendingChange) => {
+        if (change.nextPending === undefined) {
+          delete nextPendingMap[change.key];
+        } else {
+          nextPendingMap[change.key] = change.nextPending;
+        }
+      };
+      if (last.kind === "batch") {
+        for (const change of last.changes) {
+          applyRedo(change);
+        }
       } else {
-        nextPendingMap[last.key] = last.nextPending;
+        applyRedo(last);
       }
       return {
         pending: nextPendingMap,
@@ -116,6 +184,7 @@ export default function CanvasPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [invalidToken, setInvalidToken] = useState(false);
+  const stampTool = useStampTool();
   const [selectedColor, setSelectedColorRaw] = useState(
     () => (typeof window !== "undefined" ? localStorage.getItem("pixagora-color") : null) ?? "#000000",
   );
@@ -256,6 +325,7 @@ export default function CanvasPage() {
   const showInvalidToken = loggedIn && user === null;
   const isAuthenticated = loggedIn && !!user;
   const isLoadingUser = loggedIn && user === undefined;
+  const toolControls = <StampToolControls stamp={stampTool} />;
 
   useEffect(() => {
     if (showInvalidToken) {
@@ -389,6 +459,40 @@ export default function CanvasPage() {
     if (!isAuthenticated) {
       return;
     }
+    if (stampTool.tool === "stamp") {
+      if (!stampTool.stampReady || stampTool.stampPixels.length === 0) {
+        return;
+      }
+      const changes: { key: string; nextPending?: string }[] = [];
+      for (const px of stampTool.stampPixels) {
+        const targetX = x + px.x;
+        const targetY = y + px.y;
+        if (
+          targetX < 0 ||
+          targetY < 0 ||
+          targetX >= gridWidth ||
+          targetY >= gridHeight
+        ) {
+          continue;
+        }
+        const key = `${targetX},${targetY}`;
+        const serverColor = serverPixelMap.get(key)?.color ?? "#ffffff";
+        const visibleColor = (
+          pendingState.pending[key] ?? serverColor
+        ).toLowerCase();
+        const nextColor = px.color.toLowerCase();
+        if (nextColor === visibleColor) {
+          continue;
+        }
+        const nextPending =
+          nextColor === serverColor.toLowerCase() ? undefined : px.color;
+        changes.push({ key, nextPending });
+      }
+      if (changes.length > 0) {
+        dispatch({ type: "applyBatch", changes });
+      }
+      return;
+    }
     const key = `${x},${y}`;
     const serverColor = serverPixelMap.get(key)?.color;
     const visibleColor = (pendingState.pending[key] ?? serverColor ?? "#ffffff").toLowerCase();
@@ -468,6 +572,7 @@ export default function CanvasPage() {
         canCommit={isAuthenticated && pendingCount > 0 && !!canvasId}
         isCommitting={isCommitting}
         showFooter={isAuthenticated}
+        toolControls={toolControls}
       >
         {totalCanvases === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
