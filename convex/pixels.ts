@@ -103,6 +103,7 @@ export const commit = mutation({
       x: number;
       y: number;
       color: string;
+      price: number;
       previousColor?: string;
     }[] = [];
 
@@ -159,14 +160,6 @@ export const commit = mutation({
       throw new Error("Not enough credits");
     }
 
-    await ctx.db.insert("payments", {
-      userId: user._id,
-      amountSats: 0,
-      creditsDelta: -totalCost,
-      createdAt: Date.now(),
-      source: "pixel-commit",
-    });
-
     const now = Date.now();
 
     for (const px of pixelDetails) {
@@ -193,6 +186,7 @@ export const commit = mutation({
         x: px.x,
         y: px.y,
         color: px.color,
+        price: px.price,
         previousColor: px.previousColor,
       });
     }
@@ -201,6 +195,7 @@ export const commit = mutation({
       canvasId,
       userId: user._id,
       timestamp: now,
+      cost: totalCost,
       changes,
     });
 

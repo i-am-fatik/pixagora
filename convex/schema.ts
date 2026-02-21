@@ -40,11 +40,13 @@ export default defineSchema({
     canvasId: v.id("canvases"),
     userId: v.id("users"),
     timestamp: v.number(),
+    cost: v.number(),
     changes: v.array(
       v.object({
         x: v.number(),
         y: v.number(),
         color: v.string(),
+        price: v.number(),
         previousColor: v.optional(v.string()),
       })
     ),

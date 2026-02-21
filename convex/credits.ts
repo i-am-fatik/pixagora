@@ -24,7 +24,15 @@ export async function computeCredits(
     .query("payments")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
-  return payments.reduce((sum, p) => sum + p.creditsDelta, 0);
+  const earned = payments.reduce((sum, p) => sum + p.creditsDelta, 0);
+
+  const transactions = await ctx.db
+    .query("transactions")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  const spent = transactions.reduce((sum, t) => sum + (t.cost ?? 0), 0);
+
+  return earned - spent;
 }
 
 export async function findOrCreateUser(
