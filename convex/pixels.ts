@@ -34,7 +34,7 @@ async function maybeCreateNextCanvas(
   ).length;
 
   const fillRatio = pixelCount / totalCells;
-  if (fillRatio < canvas.unlockThreshold) {
+  if (fillRatio < (canvas.unlockThreshold ?? 0.8)) {
     return;
   }
 
@@ -199,7 +199,8 @@ export const commit = mutation({
       changes,
     });
 
-    await maybeCreateNextCanvas(ctx, canvas);
+    // auto-creating new canvases OFF
+    // await maybeCreateNextCanvas(ctx, canvas);
 
     return { totalCost, remaining: balance - totalCost };
   },

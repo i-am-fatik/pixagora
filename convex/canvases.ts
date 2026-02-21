@@ -41,8 +41,8 @@ export const create = internalMutation({
     if (args.pixelPrice <= 0) {
       throw new Error("pixelPrice must be positive");
     }
-    const threshold = args.unlockThreshold ?? 0.8;
-    if (threshold <= 0 || threshold > 1) {
+    const threshold = args.unlockThreshold;
+    if (threshold !== undefined && (threshold <= 0 || threshold > 1)) {
       throw new Error("unlockThreshold must be between 0 (exclusive) and 1 (inclusive)");
     }
 

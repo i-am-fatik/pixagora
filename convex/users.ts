@@ -1,4 +1,4 @@
-import { query, internalMutation, internalQuery } from "./_generated/server";
+import { query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { computeCredits } from "./credits";
 
@@ -14,27 +14,6 @@ export const getByToken = query({
     }
     const credits = await computeCredits(ctx, user._id);
     return { _id: user._id, email: user.email, credits };
-  },
-});
-
-export const addCredits = internalMutation({
-  args: {
-    userId: v.id("users"),
-    credits: v.number(),
-    amountCzk: v.number(),
-  },
-  handler: async (ctx, { userId, credits, amountCzk }) => {
-    const user = await ctx.db.get(userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    await ctx.db.insert("payments", {
-      userId,
-      amountCzk,
-      creditsDelta: credits,
-      createdAt: Date.now(),
-    });
   },
 });
 

@@ -1,5 +1,4 @@
-import { internalMutation, MutationCtx, QueryCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { MutationCtx, QueryCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 
 function generateToken(): string {
@@ -59,29 +58,4 @@ export async function findOrCreateUser(
   return user;
 }
 
-export const giveaway = internalMutation({
-  args: {
-    email: v.string(),
-    credits: v.number(),
-    note: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    if (args.credits <= 0) {
-      throw new Error("Credits must be positive");
-    }
 
-    const user = await findOrCreateUser(ctx, args.email);
-
-    await ctx.db.insert("payments", {
-      userId: user._id,
-      amountSats: 0,
-      creditsDelta: args.credits,
-      createdAt: Date.now(),
-      source: "giveaway",
-      trxId: args.note,
-    });
-
-    const balance = await computeCredits(ctx, user._id);
-    return { userId: user._id, balance };
-  },
-});
