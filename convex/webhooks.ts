@@ -35,7 +35,7 @@ function creditsForReward(reward: string, amountCzk: number): number {
   return Math.floor(amountCzk / FALLBACK_CZK_PER_CREDIT);
 }
 
-export const processStartovacPayment = internalMutation({
+export const processPayment = internalMutation({
   args: {
     source: v.string(),
     trxId: v.string(),
@@ -84,7 +84,6 @@ export const processStartovacPayment = internalMutation({
 
     await ctx.db.insert("payments", {
       userId: user._id,
-      amountSats: 0,
       creditsDelta,
       createdAt: Date.now(),
       source: args.source,
