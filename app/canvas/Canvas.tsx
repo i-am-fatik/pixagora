@@ -24,6 +24,7 @@ type CanvasProps = {
   selectedColor: string;
   onPixelClick: (x: number, y: number) => void;
   onEdgeSwipe?: (direction: "next" | "prev") => void;
+  highlightedPixels?: Set<string>;
 };
 
 function drawGrid(
@@ -39,6 +40,7 @@ function drawGrid(
   scale: number,
   viewportW: number,
   viewportH: number,
+  highlightedPixels?: Set<string>,
 ) {
   const dpr = window.devicePixelRatio || 1;
   ctx.save();
@@ -92,6 +94,30 @@ function drawGrid(
     ctx.lineTo(px, y1);
   }
   ctx.stroke();
+
+  if (highlightedPixels && highlightedPixels.size > 0) {
+    ctx.globalAlpha = 1;
+    const borderWidth = Math.max(2 / scale, 1);
+    const inset = borderWidth / 2;
+    for (let y = startY; y < endY; y++) {
+      for (let x = startX; x < endX; x++) {
+        const key = `${x},${y}`;
+        if (!highlightedPixels.has(key)) {
+          continue;
+        }
+        const px = x * step + inset;
+        const py = y * step + inset;
+        const size = cellSize - borderWidth;
+        ctx.lineWidth = borderWidth;
+        ctx.strokeStyle = "#000000";
+        ctx.strokeRect(px, py, size, size);
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = borderWidth * 0.6;
+        ctx.strokeRect(px, py, size, size);
+      }
+    }
+  }
+
   ctx.globalAlpha = 1;
   ctx.restore();
 }
@@ -130,6 +156,7 @@ export function Canvas({
   selectedColor,
   onPixelClick,
   onEdgeSwipe,
+  highlightedPixels,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
@@ -369,6 +396,7 @@ export function Canvas({
     height,
     baseCellSize,
     selectedColor,
+    highlightedPixels,
   });
 
   useEffect(() => {
@@ -378,8 +406,9 @@ export function Canvas({
       height,
       baseCellSize,
       selectedColor,
+      highlightedPixels,
     };
-  }, [pixelMap, width, height, baseCellSize, selectedColor]);
+  }, [pixelMap, width, height, baseCellSize, selectedColor, highlightedPixels]);
 
   const scheduleRedraw = useCallback(() => {
     if (needsDrawRef.current) {
@@ -411,6 +440,7 @@ export function Canvas({
         scaleRef.current,
         canvas.width / dpr,
         canvas.height / dpr,
+        d.highlightedPixels,
       );
     });
   }, []);
@@ -432,7 +462,7 @@ export function Canvas({
 
   useEffect(() => {
     scheduleRedraw();
-  }, [pixelMap, width, height, baseCellSize, selectedColor, translate, scale, scheduleRedraw]);
+  }, [pixelMap, width, height, baseCellSize, selectedColor, translate, scale, highlightedPixels, scheduleRedraw]);
 
   useEffect(() => {
     return () => {

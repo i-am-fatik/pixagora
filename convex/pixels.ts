@@ -78,8 +78,9 @@ export const commit = mutation({
         color: v.string(),
       })
     ),
+    expectedCost: v.optional(v.number()),
   },
-  handler: async (ctx, { token, canvasId, pixels }) => {
+  handler: async (ctx, { token, canvasId, pixels, expectedCost }) => {
     if (pixels.length === 0) {
       throw new Error("No pixels to commit");
     }
@@ -164,6 +165,10 @@ export const commit = mutation({
     if (pixelDetails.length === 0) {
       const balance = await computeCredits(ctx, user._id);
       return { totalCost: 0, remaining: balance };
+    }
+
+    if (expectedCost !== undefined && totalCost !== expectedCost) {
+      return { error: "PRICE_CHANGED" as const, expectedCost, totalCost };
     }
 
     const balance = await computeCredits(ctx, user._id);

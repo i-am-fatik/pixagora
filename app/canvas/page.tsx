@@ -126,6 +126,9 @@ export default function CanvasPage() {
   }, []);
   const [isCommitting, setIsCommitting] = useState(false);
   const [noCreditsOpen, setNoCreditsOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [initialCost, setInitialCost] = useState(0);
+  const [initialPendingCount, setInitialPendingCount] = useState(0);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
     initialPendingState,
@@ -393,6 +396,36 @@ export default function CanvasPage() {
     return cost;
   }, [effectivePending, serverPixelMap, pixelPrice]);
 
+  const priceChanged = confirmOpen && totalCost !== initialCost;
+  const pixelsStolen = confirmOpen && pendingCount < initialPendingCount;
+
+  const highlightedPixelSet = useMemo(
+    () => (confirmOpen ? new Set(Object.keys(effectivePending)) : undefined),
+    [confirmOpen, effectivePending],
+  );
+
+  const handleOpenConfirm = () => {
+    setInitialCost(totalCost);
+    setInitialPendingCount(pendingCount);
+    setConfirmOpen(true);
+  };
+
+  const handleCancelConfirm = () => {
+    setConfirmOpen(false);
+  };
+
+  const handleAcceptChanges = () => {
+    setInitialCost(totalCost);
+    setInitialPendingCount(pendingCount);
+  };
+
+  const handleConfirm = async () => {
+    const ok = await handleCommit();
+    if (ok) {
+      setConfirmOpen(false);
+    }
+  };
+
   const handlePixelClick = (x: number, y: number) => {
     if (!isAuthenticated) {
       return;
@@ -412,9 +445,9 @@ export default function CanvasPage() {
     }
   };
 
-  const handleCommit = async () => {
+  const handleCommit = async (): Promise<boolean> => {
     if (!isAuthenticated || pendingCount === 0 || isCommitting || !canvasId) {
-      return;
+      return false;
     }
     setIsCommitting(true);
     try {
@@ -425,16 +458,24 @@ export default function CanvasPage() {
         },
       );
       if (payload.length === 0) {
-        return;
+        return false;
       }
-      const result = await commitPixels({ token, canvasId, pixels: payload });
-      if (result && "error" in result && result.error === "NOT_ENOUGH_CREDITS") {
-        setNoCreditsOpen(true);
-      } else {
-        dispatch({ type: "reset" });
+      const result = await commitPixels({ token, canvasId, pixels: payload, expectedCost: totalCost });
+      if (result && "error" in result) {
+        if (result.error === "NOT_ENOUGH_CREDITS") {
+          setNoCreditsOpen(true);
+        } else if (result.error === "PRICE_CHANGED") {
+          setInitialCost(totalCost);
+          setInitialPendingCount(pendingCount);
+          return false;
+        }
+        return false;
       }
+      dispatch({ type: "reset" });
+      return true;
     } catch (error) {
       alert(error instanceof Error ? error.message : "Commit failed");
+      return false;
     } finally {
       setIsCommitting(false);
     }
@@ -475,7 +516,7 @@ export default function CanvasPage() {
         totalCost={totalCost}
         onUndo={() => dispatch({ type: "undo" })}
         onRedo={() => dispatch({ type: "redo" })}
-        onCommit={handleCommit}
+        onCommit={handleOpenConfirm}
         canUndo={pendingState.history.length > 0}
         canRedo={pendingState.redo.length > 0}
         canCommit={isAuthenticated && pendingCount > 0 && !!canvasId}
@@ -521,6 +562,9 @@ export default function CanvasPage() {
                       }}
                       onEdgeSwipe={
                         index === activeReelIndex ? handleEdgeSwipe : undefined
+                      }
+                      highlightedPixels={
+                        index === activeReelIndex ? highlightedPixelSet : undefined
                       }
                     />
                   </div>
@@ -616,6 +660,66 @@ export default function CanvasPage() {
             >
               Zavřít
             </Button>
+          </div>
+        </div>
+      )}
+
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
+          >
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold">Potvrdit nákup</h2>
+              <p className="text-sm text-muted-foreground">
+                Chystáš se zakoupit{" "}
+                <strong className="text-foreground">{pendingCount}</strong>{" "}
+                {pendingCount === 1 ? "pixel" : pendingCount < 5 ? "pixely" : "pixelů"}{" "}
+                za{" "}
+                <strong className="text-foreground">{totalCost}</strong>{" "}
+                kreditů.
+              </p>
+            </div>
+            {priceChanged && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+                <p className="font-medium">Cena se změnila!</p>
+                <p className="mt-0.5 text-xs">
+                  Někdo jiný mezitím zakoupil pixel, který chceš přepsat.
+                  Přepsání stojí víc. Celková cena se změnila
+                  z <strong>{initialCost}</strong> na{" "}
+                  <strong>{totalCost}</strong> kreditů.
+                </p>
+              </div>
+            )}
+            {pixelsStolen && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+                <p className="font-medium">Pixely se změnily!</p>
+                <p className="mt-0.5 text-xs">
+                  Někdo jiný mezitím změnil některé pixely, které jsi chtěl
+                  přepsat. Zkontroluj své změny na plátně.
+                </p>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              {priceChanged || pixelsStolen ? (
+                <Button onClick={handleAcceptChanges} className="flex-1">
+                  Akceptovat změnu
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleConfirm}
+                  disabled={isCommitting}
+                  className="flex-1"
+                >
+                  {isCommitting ? "Odesílám…" : "Potvrdit"}
+                </Button>
+              )}
+              <Button variant="secondary" onClick={handleCancelConfirm}>
+                Zrušit
+              </Button>
+            </div>
           </div>
         </div>
       )}
