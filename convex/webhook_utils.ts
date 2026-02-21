@@ -220,6 +220,7 @@ export async function sendStartovacTokenEmail(params: {
   const productName = process.env.PIXAGORA_EMAIL_PRODUCT_NAME ?? "Pixagora";
   const logoUrl = process.env.PIXAGORA_EMAIL_LOGO_URL;
   const logoAlt = process.env.PIXAGORA_EMAIL_LOGO_ALT ?? brandName;
+  const replyTo = process.env.PIXAGORA_EMAIL_REPLY_TO;
 
   const subject = `${productName} – potvrzení platby a token`;
   const html = buildStartovacEmailHtml({
@@ -256,6 +257,7 @@ export async function sendStartovacTokenEmail(params: {
       subject,
       html,
       text,
+      ...(replyTo ? { reply_to: replyTo } : {}),
     }),
   });
 
