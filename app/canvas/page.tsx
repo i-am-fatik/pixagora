@@ -16,24 +16,6 @@ import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export const GRID_WIDTH = 20;
-export const GRID_HEIGHT = 20;
-const PIXEL_PRICE = 1;
-const PAGE_UNLOCK_THRESHOLD = 0.2;
-const PAGE_HARD_CAP = 4;
-
-const COLORS = [
-  "#000000", // black
-  "#7F7F7F", // agorist gray
-  "#FFFFFF", // white (peace)
-  "#FFD400", // ancap yellow
-  "#F7931A", // BTC orange
-  "#00AEEF", // cyan
-  "#EC008C", // magenta
-  "#0057B8", // royal blue
-  "#00A651", // green
-];
-
 type PendingChange = {
   key: string;
   prevPending?: string;
@@ -50,7 +32,8 @@ type PendingAction =
   | { type: "apply"; key: string; nextPending?: string }
   | { type: "undo" }
   | { type: "redo" }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "load"; state: PendingState };
 
 const initialPendingState: PendingState = {
   pending: {},
@@ -120,6 +103,9 @@ function pendingReducer(
     case "reset": {
       return initialPendingState;
     }
+    case "load": {
+      return action.state;
+    }
     default:
       return state;
   }
@@ -130,7 +116,13 @@ export default function CanvasPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [invalidToken, setInvalidToken] = useState(false);
-  const [selectedColor, setSelectedColor] = useState(COLORS[0]);
+  const [selectedColor, setSelectedColorRaw] = useState(
+    () => (typeof window !== "undefined" ? localStorage.getItem("pixagora-color") : null) ?? "#000000",
+  );
+  const setSelectedColor = useCallback((color: string) => {
+    setSelectedColorRaw(color);
+    localStorage.setItem("pixagora-color", color);
+  }, []);
   const [isCommitting, setIsCommitting] = useState(false);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
@@ -140,10 +132,76 @@ export default function CanvasPage() {
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const reelsRef = useRef<CanvasReelsHandle | null>(null);
   const [activeReelIndex, setActiveReelIndex] = useState(0);
+  const canvasIdRef = useRef<string | undefined>(undefined);
+  const skipSaveRef = useRef(true);
 
   const user = useQuery(api.users.getByToken, loggedIn ? { token } : "skip");
-  const pixels = useQuery(api.pixels.getAll);
+  const canvases = useQuery(api.canvases.getAll);
+
+  const activeCanvas = canvases?.[activeReelIndex];
+  const canvasId = activeCanvas?._id;
+
+  const pixels = useQuery(
+    api.pixels.getByCanvas,
+    canvasId ? { canvasId } : "skip",
+  );
+
   const commitPixels = useMutation(api.pixels.commit);
+
+  const colors = activeCanvas?.colors ?? ["#000000"];
+  const gridWidth = activeCanvas?.width ?? 20;
+  const gridHeight = activeCanvas?.height ?? 20;
+  const pixelPrice = activeCanvas?.pixelPrice ?? 1;
+  const totalCanvases = canvases?.length ?? 0;
+
+  useEffect(() => {
+    if (!canvasId || canvasId === canvasIdRef.current) {
+      return;
+    }
+    canvasIdRef.current = canvasId;
+    skipSaveRef.current = true;
+    try {
+      const raw = localStorage.getItem(`pixagora-pending-${canvasId}`);
+      if (raw) {
+        const saved = JSON.parse(raw) as PendingState;
+        if (
+          saved &&
+          typeof saved.pending === "object" &&
+          Array.isArray(saved.history) &&
+          Array.isArray(saved.redo)
+        ) {
+          dispatch({ type: "load", state: saved });
+          return;
+        }
+      }
+    } catch {}
+    dispatch({ type: "reset" });
+  }, [canvasId]);
+
+  useEffect(() => {
+    if (skipSaveRef.current) {
+      skipSaveRef.current = false;
+      return;
+    }
+    const id = canvasIdRef.current;
+    if (!id) {
+      return;
+    }
+    try {
+      if (Object.keys(pendingState.pending).length === 0 && pendingState.history.length === 0) {
+        localStorage.removeItem(`pixagora-pending-${id}`);
+      } else {
+        localStorage.setItem(`pixagora-pending-${id}`, JSON.stringify(pendingState));
+      }
+    } catch {}
+  }, [pendingState]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (colors.length > 0 && !colors.includes(selectedColor)) {
+      setSelectedColor(colors[0]);
+    }
+  }, [colors]);
 
   useEffect(() => {
     const saved = localStorage.getItem("pixagora-token");
@@ -154,7 +212,9 @@ export default function CanvasPage() {
   }, []);
 
   const handleLogin = () => {
-    if (!token.trim()) return;
+    if (!token.trim()) {
+      return;
+    }
     localStorage.setItem("pixagora-token", token);
     setLoggedIn(true);
     setInvalidToken(false);
@@ -163,6 +223,13 @@ export default function CanvasPage() {
 
   const handleLogout = () => {
     localStorage.removeItem("pixagora-token");
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith("pixagora-pending-")) {
+        localStorage.removeItem(key);
+      }
+    }
+    canvasIdRef.current = undefined;
     setToken("");
     setLoggedIn(false);
     dispatch({ type: "reset" });
@@ -184,7 +251,9 @@ export default function CanvasPage() {
   }, [showInvalidToken]);
 
   useEffect(() => {
-    if (!loginOpen) return;
+    if (!loginOpen) {
+      return;
+    }
     previousFocusRef.current = document.activeElement as HTMLElement | null;
     const dialog = loginDialogRef.current;
     const focusable = dialog?.querySelector<HTMLElement>(
@@ -206,10 +275,14 @@ export default function CanvasPage() {
       setLoginOpen(false);
       return;
     }
-    if (event.key !== "Tab") return;
+    if (event.key !== "Tab") {
+      return;
+    }
 
     const dialog = loginDialogRef.current;
-    if (!dialog) return;
+    if (!dialog) {
+      return;
+    }
     const focusable = Array.from(
       dialog.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
@@ -242,96 +315,93 @@ export default function CanvasPage() {
   };
 
   const serverPixelMap = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, { color: string; price: number }>();
     (pixels ?? []).forEach((pixel) => {
-      map.set(`${pixel.x},${pixel.y}`, pixel.color);
+      map.set(`${pixel.x},${pixel.y}`, { color: pixel.color, price: pixel.price });
     });
     return map;
   }, [pixels]);
 
   const combinedPixelMap = useMemo(() => {
-    const map = new Map(serverPixelMap);
+    const map = new Map<string, string>();
+    serverPixelMap.forEach((val, key) => {
+      map.set(key, val.color);
+    });
     Object.entries(pendingState.pending).forEach(([key, color]) => {
       map.set(key, color);
     });
     return map;
   }, [serverPixelMap, pendingState.pending]);
 
-  const totalPages = useMemo(() => {
-    const counts = Array.from({ length: PAGE_HARD_CAP }, () => 0);
-    serverPixelMap.forEach((_color, key) => {
-      const [, yRaw] = key.split(",");
-      const y = Number(yRaw);
-      if (!Number.isFinite(y)) return;
-      const pageIndex = Math.floor(y / GRID_HEIGHT);
-      if (pageIndex >= 0 && pageIndex < PAGE_HARD_CAP) {
-        counts[pageIndex] += 1;
-      }
-    });
-
-    const pageSize = GRID_WIDTH * GRID_HEIGHT;
-    let pages = 1;
-    while (pages < PAGE_HARD_CAP) {
-      const fill = counts[pages - 1] / pageSize;
-      if (fill >= PAGE_UNLOCK_THRESHOLD) {
-        pages += 1;
-      } else {
-        break;
-      }
-    }
-    return pages;
-  }, [serverPixelMap]);
-
-  const pixelsByPage = useMemo(() => {
-    const pages = Array.from(
-      { length: totalPages },
-      () =>
-        [] as {
-          x: number;
-          y: number;
-          color: string;
-        }[],
-    );
+  const activeCanvasPixels = useMemo(() => {
+    const result: { x: number; y: number; color: string }[] = [];
     combinedPixelMap.forEach((color, key) => {
       const [xRaw, yRaw] = key.split(",");
       const x = Number(xRaw);
       const y = Number(yRaw);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      const pageIndex = Math.floor(y / GRID_HEIGHT);
-      if (pageIndex < 0 || pageIndex >= totalPages) return;
-      pages[pageIndex].push({
-        x,
-        y: y - pageIndex * GRID_HEIGHT,
-        color,
-      });
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        result.push({ x, y, color });
+      }
     });
-    return pages;
-  }, [combinedPixelMap, totalPages]);
+    return result;
+  }, [combinedPixelMap]);
 
-  const pendingCount = Object.keys(pendingState.pending).length;
-  const totalCost = pendingCount * PIXEL_PRICE;
+  const effectivePending = useMemo(() => {
+    const result: Record<string, string> = {};
+    for (const [key, color] of Object.entries(pendingState.pending)) {
+      const serverColor = (serverPixelMap.get(key)?.color ?? "#ffffff").toLowerCase();
+      if (serverColor !== color.toLowerCase()) {
+        result[key] = color;
+      }
+    }
+    return result;
+  }, [pendingState.pending, serverPixelMap]);
 
-  const handlePixelClick = (pageIndex: number, x: number, y: number) => {
-    if (!isAuthenticated) return;
-    const globalY = y + pageIndex * GRID_HEIGHT;
-    const key = `${x},${globalY}`;
-    const serverColor = serverPixelMap.get(key);
-    const nextPending =
-      selectedColor === serverColor ? undefined : selectedColor;
-    dispatch({ type: "apply", key, nextPending });
+  const pendingCount = Object.keys(effectivePending).length;
+  const totalCost = useMemo(() => {
+    let cost = 0;
+    for (const key of Object.keys(effectivePending)) {
+      const existing = serverPixelMap.get(key);
+      cost += existing ? existing.price + 1 : pixelPrice;
+    }
+    return cost;
+  }, [effectivePending, serverPixelMap, pixelPrice]);
+
+  const handlePixelClick = (x: number, y: number) => {
+    if (!isAuthenticated) {
+      return;
+    }
+    const key = `${x},${y}`;
+    const serverColor = serverPixelMap.get(key)?.color;
+    const visibleColor = (pendingState.pending[key] ?? serverColor ?? "#ffffff").toLowerCase();
+
+    if (selectedColor.toLowerCase() === visibleColor) {
+      dispatch({ type: "apply", key, nextPending: undefined });
+    } else {
+      const nextPending =
+        selectedColor.toLowerCase() === (serverColor ?? "#ffffff").toLowerCase()
+          ? undefined
+          : selectedColor;
+      dispatch({ type: "apply", key, nextPending });
+    }
   };
 
   const handleCommit = async () => {
-    if (!isAuthenticated || pendingCount === 0 || isCommitting) return;
+    if (!isAuthenticated || pendingCount === 0 || isCommitting || !canvasId) {
+      return;
+    }
     setIsCommitting(true);
     try {
-      const payload = Object.entries(pendingState.pending).map(
+      const payload = Object.entries(effectivePending).map(
         ([key, color]) => {
           const [x, y] = key.split(",").map(Number);
           return { x, y, color };
         },
       );
-      await commitPixels({ token, pixels: payload });
+      if (payload.length === 0) {
+        return;
+      }
+      await commitPixels({ token, canvasId, pixels: payload });
       dispatch({ type: "reset" });
     } catch (error: any) {
       alert(error?.message || "Commit failed");
@@ -340,16 +410,22 @@ export default function CanvasPage() {
     }
   };
 
+  const handleReelIndexChange = useCallback((index: number) => {
+    setActiveReelIndex(index);
+  }, []);
+
   const handleEdgeSwipe = useCallback(
     (direction: "next" | "prev") => {
-      if (totalPages <= 1) return;
+      if (totalCanvases <= 1) {
+        return;
+      }
       if (direction === "next") {
         reelsRef.current?.next();
       } else {
         reelsRef.current?.prev();
       }
     },
-    [totalPages],
+    [totalCanvases],
   );
 
   return (
@@ -361,7 +437,7 @@ export default function CanvasPage() {
         onSignOut={handleLogout}
         signInDisabled={false}
         showInvalidToken={invalidToken}
-        colors={COLORS}
+        colors={colors}
         selectedColor={selectedColor}
         onSelectColor={setSelectedColor}
         changedCount={pendingCount}
@@ -371,38 +447,56 @@ export default function CanvasPage() {
         onCommit={handleCommit}
         canUndo={pendingState.history.length > 0}
         canRedo={pendingState.redo.length > 0}
-        canCommit={isAuthenticated && pendingCount > 0}
+        canCommit={isAuthenticated && pendingCount > 0 && !!canvasId}
         isCommitting={isCommitting}
         showFooter={isAuthenticated}
       >
-        <CanvasReels
-          ref={reelsRef}
-          count={totalPages}
-          enableTouchSwipe={false}
-          onIndexChange={setActiveReelIndex}
-          renderItem={(index) => (
-            <div className="flex h-full w-full items-center justify-center p-6 box-border overflow-hidden">
-              {isLoadingUser ? (
-                <div className="text-sm text-muted-foreground">
-                  Načítám uživatele…
-                </div>
-              ) : (
-                <div className="flex h-full w-full items-center justify-center overflow-hidden">
-                  <Canvas
-                    pixels={pixelsByPage[index] ?? []}
-                    width={GRID_WIDTH}
-                    height={GRID_HEIGHT}
-                    selectedColor={selectedColor}
-                    onPixelClick={(x, y) => handlePixelClick(index, x, y)}
-                    onEdgeSwipe={
-                      index === activeReelIndex ? handleEdgeSwipe : undefined
-                    }
-                  />
-                </div>
-              )}
+        {totalCanvases === 0 ? (
+          <div className="flex h-full w-full items-center justify-center">
+            <div className="text-sm text-muted-foreground">
+              {canvases === undefined ? "Načítám plátna…" : "Žádná plátna k zobrazení."}
             </div>
-          )}
-        />
+          </div>
+        ) : (
+          <CanvasReels
+            ref={reelsRef}
+            count={totalCanvases}
+            enableTouchSwipe={false}
+            onIndexChange={handleReelIndexChange}
+            renderItem={(index) => (
+              <div className="flex h-full w-full items-center justify-center p-6 box-border overflow-hidden">
+                {isLoadingUser ? (
+                  <div className="text-sm text-muted-foreground">
+                    Načítám uživatele…
+                  </div>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center overflow-hidden">
+                    <Canvas
+                      pixels={
+                        index === activeReelIndex ? activeCanvasPixels : []
+                      }
+                      width={
+                        canvases?.[index]?.width ?? gridWidth
+                      }
+                      height={
+                        canvases?.[index]?.height ?? gridHeight
+                      }
+                      selectedColor={selectedColor}
+                      onPixelClick={(x, y) => {
+                        if (index === activeReelIndex) {
+                          handlePixelClick(x, y);
+                        }
+                      }}
+                      onEdgeSwipe={
+                        index === activeReelIndex ? handleEdgeSwipe : undefined
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          />
+        )}
       </CanvasPageLayout>
 
       {loginOpen && (

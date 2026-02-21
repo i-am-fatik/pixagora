@@ -6,4 +6,5 @@ export default defineConfig([
   ...nextCoreWebVitals,
   ...nextTypescript,
   globalIgnores(["convex/_generated"]),
+  { rules: { curly: "error" } },
 ]);
