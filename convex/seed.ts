@@ -57,8 +57,8 @@ export const seedDemo = internalMutation({
     canvasName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const width = args.width ?? 100;
-    const height = args.height ?? 100;
+    const width = args.width ?? 110;
+    const height = args.height ?? 169;
     const canvasName = args.canvasName ?? "Pixagora #1";
 
     const userResults = [];

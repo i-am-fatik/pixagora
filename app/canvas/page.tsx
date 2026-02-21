@@ -203,22 +203,40 @@ export default function CanvasPage() {
     }
   }, [colors]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("pixagora-token");
-    if (saved) {
-      setToken(saved);
-      setLoggedIn(true);
-    }
-  }, []);
-
-  const handleLogin = () => {
-    if (!token.trim()) {
+  const applyLogin = useCallback((nextToken: string) => {
+    const trimmed = nextToken.trim();
+    if (!trimmed) {
       return;
     }
-    localStorage.setItem("pixagora-token", token);
+    localStorage.setItem("pixagora-token", trimmed);
+    setToken(trimmed);
     setLoggedIn(true);
     setInvalidToken(false);
     setLoginOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("pixagora-token");
+    if (saved) {
+      applyLogin(saved);
+    }
+  }, [applyLogin]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ token?: string }>).detail;
+      if (detail?.token) {
+        applyLogin(detail.token);
+      }
+    };
+    window.addEventListener("pixagora-login", handler);
+    return () => {
+      window.removeEventListener("pixagora-login", handler);
+    };
+  }, [applyLogin]);
+
+  const handleLogin = () => {
+    applyLogin(token);
   };
 
   const handleLogout = () => {
