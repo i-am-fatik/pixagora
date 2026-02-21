@@ -1,4 +1,4 @@
-import { query } from "./_generated/server";
+import { query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 export const getTransactions = query({
@@ -19,7 +19,7 @@ export const getTransactions = query({
   },
 });
 
-export const getTransactionsByUser = query({
+export const getTransactionsByUser = internalQuery({
   args: {
     userId: v.id("users"),
     canvasId: v.optional(v.id("canvases")),

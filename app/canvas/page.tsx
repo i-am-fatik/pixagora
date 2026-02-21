@@ -125,6 +125,7 @@ export default function CanvasPage() {
     localStorage.setItem("pixagora-color", color);
   }, []);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [noCreditsOpen, setNoCreditsOpen] = useState(false);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
     initialPendingState,
@@ -420,10 +421,14 @@ export default function CanvasPage() {
       if (payload.length === 0) {
         return;
       }
-      await commitPixels({ token, canvasId, pixels: payload });
-      dispatch({ type: "reset" });
-    } catch (error: any) {
-      alert(error?.message || "Commit failed");
+      const result = await commitPixels({ token, canvasId, pixels: payload });
+      if (result && "error" in result && result.error === "NOT_ENOUGH_CREDITS") {
+        setNoCreditsOpen(true);
+      } else {
+        dispatch({ type: "reset" });
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Commit failed");
     } finally {
       setIsCommitting(false);
     }
@@ -563,6 +568,47 @@ export default function CanvasPage() {
                 Zavřít
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {noCreditsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
+          >
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold">Nedostatek kreditů</h2>
+              <p className="text-sm text-muted-foreground">
+                Na malování nemáš dost kreditů. Ale můžeš si je dobít:
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <a
+                href="https://www.startovac.cz/projects/anarchoagorismus"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+              >
+                Podpořit na Startovači
+              </a>
+              <button
+                type="button"
+                disabled
+                className="inline-flex h-10 items-center justify-center rounded-md border px-4 text-sm font-medium text-muted-foreground opacity-50"
+              >
+                Zaplatit Bitcoinem (brzy)
+              </button>
+            </div>
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={() => setNoCreditsOpen(false)}
+            >
+              Zavřít
+            </Button>
           </div>
         </div>
       )}

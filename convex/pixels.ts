@@ -157,7 +157,7 @@ export const commit = mutation({
 
     const balance = await computeCredits(ctx, user._id);
     if (balance < totalCost) {
-      throw new Error("Not enough credits");
+      return { error: "NOT_ENOUGH_CREDITS" as const, totalCost, balance };
     }
 
     const now = Date.now();
