@@ -70,7 +70,7 @@ export function buildStartovacEmailHtml(params: {
   productName: string;
   logoUrl?: string;
   logoAlt: string;
-  token: string;
+  loginUrl: string;
   creditsDelta: number;
   reward: string;
   amountCzk: number;
@@ -82,7 +82,7 @@ export function buildStartovacEmailHtml(params: {
     productName,
     logoUrl,
     logoAlt,
-    token,
+    loginUrl,
     creditsDelta,
     reward,
     amountCzk,
@@ -93,10 +93,10 @@ export function buildStartovacEmailHtml(params: {
   const safeBrandName = escapeHtml(brandName);
   const safeProductName = escapeHtml(productName);
   const safeLogoAlt = escapeHtml(logoAlt);
-  const safeToken = escapeHtml(token);
   const safeReward = escapeHtml(reward);
   const safeTrxId = escapeHtml(trxId);
   const safePurchasedAt = escapeHtml(purchasedAt);
+  const safeLoginUrl = escapeHtml(loginUrl);
 
   const logoHtml = logoUrl
     ? `<img src="${logoUrl}" alt="${safeLogoAlt}" width="140" height="40" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;" />`
@@ -128,9 +128,8 @@ export function buildStartovacEmailHtml(params: {
               <td style="padding:28px 32px;font-family: 'Helvetica Neue', Arial, sans-serif;font-size:16px;line-height:1.6;color:#1f2a33;">
                 <p style="margin:0 0 16px 0;">Ahoj,</p>
                 <p style="margin:0 0 16px 0;">děkujeme za podporu projektu ${safeProductName}. Připsali jsme ti <strong>${creditsDelta} kreditů</strong>.</p>
-                <div style="background:#f8f3ea;border:1px solid #e7dcc7;border-radius:10px;padding:16px 18px;margin:20px 0;">
-                  <div style="font-size:14px;letter-spacing:0.08em;text-transform:uppercase;color:#7a6a52;margin-bottom:8px;">Tvůj token</div>
-                  <div style="font-family: 'Courier New', monospace;font-size:18px;color:#1f3447;word-break:break-all;">${safeToken}</div>
+                <div style="background:#f8f3ea;border:1px solid #e7dcc7;border-radius:10px;padding:16px 18px;margin:20px 0;text-align:center;">
+                  <a href="${safeLoginUrl}" style="display:inline-block;background:#c58b3d;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:999px;">Otevřít Pixagoru</a>
                 </div>
                 <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 12px 0;">
                   <tr>
@@ -150,7 +149,9 @@ export function buildStartovacEmailHtml(params: {
                     <td style="padding:6px 0;text-align:right;font-weight:600;color:#1f2a33;">${safePurchasedAt}</td>
                   </tr>
                 </table>
-                <p style="margin:18px 0 0 0;color:#4b5a66;">Token si prosím ulož na bezpečné místo. Pokud sis nic neobjednal/a, odpověz na tento email.</p>
+                <p style="margin:18px 0 8px 0;color:#4b5a66;">Odkaz je určený pouze tobě. Pokud tlačítko nefunguje, použij tento odkaz:</p>
+                <p style="margin:0;color:#1f3447;word-break:break-all;"><a href="${safeLoginUrl}" style="color:#1f3447;">${safeLoginUrl}</a></p>
+                <p style="margin:16px 0 0 0;color:#4b5a66;">Pokud sis nic neobjednal/a, odpověz na tento email.</p>
               </td>
             </tr>
             <tr>
@@ -168,7 +169,7 @@ export function buildStartovacEmailHtml(params: {
 
 export function buildStartovacEmailText(params: {
   productName: string;
-  token: string;
+  loginUrl: string;
   creditsDelta: number;
   reward: string;
   amountCzk: number;
@@ -177,7 +178,7 @@ export function buildStartovacEmailText(params: {
 }): string {
   const {
     productName,
-    token,
+    loginUrl,
     creditsDelta,
     reward,
     amountCzk,
@@ -189,14 +190,14 @@ export function buildStartovacEmailText(params: {
     `Díky za podporu projektu ${productName}.`,
     `Připsali jsme ${creditsDelta} kreditů.`,
     "",
-    `Tvůj token: ${token}`,
+    `Přihlašovací odkaz: ${loginUrl}`,
     "",
     `Odměna: ${reward}`,
     `Částka: ${amountCzk} Kč`,
     `Transakce: ${trxId}`,
     `Datum: ${purchasedAt}`,
     "",
-    "Token si ulož na bezpečné místo. Pokud sis nic neobjednal/a, odpověz na tento email.",
+    "Odkaz je určený pouze tobě. Pokud sis nic neobjednal/a, odpověz na tento email.",
   ].join("\n");
 }
 
@@ -220,6 +221,22 @@ export async function sendStartovacTokenEmail(params: {
   const productName = process.env.PIXAGORA_EMAIL_PRODUCT_NAME ?? "Pixagora";
   const logoUrl = process.env.PIXAGORA_EMAIL_LOGO_URL;
   const logoAlt = process.env.PIXAGORA_EMAIL_LOGO_ALT ?? brandName;
+  const appUrl = process.env.PIXAGORA_APP_URL;
+  const loginPath = process.env.PIXAGORA_LOGIN_PATH ?? "/canvas";
+  if (!appUrl) {
+    return { ok: false, error: "Missing PIXAGORA_APP_URL" };
+  }
+  let loginUrl: string;
+  try {
+    const url = new URL(loginPath, appUrl);
+    url.searchParams.set("token", params.token);
+    loginUrl = url.toString();
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Invalid PIXAGORA_APP_URL or PIXAGORA_LOGIN_PATH: ${String(error)}`,
+    };
+  }
   const replyTo = process.env.PIXAGORA_EMAIL_REPLY_TO;
 
   const subject = `${productName} – potvrzení platby a token`;
@@ -228,7 +245,7 @@ export async function sendStartovacTokenEmail(params: {
     productName,
     logoUrl,
     logoAlt,
-    token: params.token,
+    loginUrl,
     creditsDelta: params.creditsDelta,
     reward: params.reward,
     amountCzk: params.amountCzk,
@@ -237,7 +254,7 @@ export async function sendStartovacTokenEmail(params: {
   });
   const text = buildStartovacEmailText({
     productName,
-    token: params.token,
+    loginUrl,
     creditsDelta: params.creditsDelta,
     reward: params.reward,
     amountCzk: params.amountCzk,
