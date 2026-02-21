@@ -12,6 +12,7 @@ import type * as http from "../http.js";
 import type * as pixels from "../pixels.js";
 import type * as seed from "../seed.js";
 import type * as users from "../users.js";
+import type * as webhook_utils from "../webhook_utils.js";
 import type * as webhooks from "../webhooks.js";
 
 import type {
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   pixels: typeof pixels;
   seed: typeof seed;
   users: typeof users;
+  webhook_utils: typeof webhook_utils;
   webhooks: typeof webhooks;
 }>;
 

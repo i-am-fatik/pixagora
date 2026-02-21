@@ -1,4 +1,4 @@
-import { query, internalMutation } from "./_generated/server";
+import { query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 export const getByToken = query({
@@ -33,5 +33,14 @@ export const addCredits = internalMutation({
       creditsDelta: credits,
       createdAt: Date.now(),
     });
+  },
+});
+
+export const getEmailAndTokenById = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+    return { email: user.email, token: user.token };
   },
 });

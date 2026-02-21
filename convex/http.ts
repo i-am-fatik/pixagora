@@ -1,6 +1,12 @@
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import {
+  isDryRun,
+  sendStartovacTokenEmail,
+  signPixagoraPayload,
+  timingSafeEqualHex,
+} from "./webhook_utils";
 
 const http = httpRouter();
 
@@ -15,48 +21,6 @@ type StartovacPayload = {
   reward: string;
   purchasedAt: string;
 };
-
-async function signPixagoraPayload(
-  secret: string,
-  timestamp: string,
-  rawBody: string,
-): Promise<string> {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error("WebCrypto is not available");
-  }
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const message = encoder.encode(`${timestamp}.${rawBody}`);
-  const key = await globalThis.crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await globalThis.crypto.subtle.sign("HMAC", key, message);
-  const bytes = new Uint8Array(signature);
-  let hex = "";
-  for (const byte of bytes) {
-    hex += byte.toString(16).padStart(2, "0");
-  }
-  return hex;
-}
-
-function timingSafeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
-}
-
-function isDryRun(): boolean {
-  const value = process.env.PIXAGORA_WEBHOOK_DRY_RUN;
-  if (!value) return false;
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
 
 function validateStartovacPayload(payload: unknown):
   | {
@@ -101,6 +65,7 @@ function jsonResponse(body: unknown, status = 200): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
+
 
 http.route({
   path: "/webhooks/btcpay",
@@ -190,15 +155,53 @@ http.route({
       },
     );
 
+    let emailSent = false;
+    let emailError: string | undefined;
+    let emailId: string | undefined;
+    if (result.status === "ok") {
+      const recipient = await ctx.runQuery(
+        internal.users.getEmailAndTokenById,
+        { userId: result.userId },
+      );
+      if (!recipient) {
+        emailError = "User not found for email";
+      } else {
+        const emailResult = await sendStartovacTokenEmail({
+          to: recipient.email,
+          token: recipient.token,
+          creditsDelta: result.creditsDelta,
+          reward: validation.value.reward,
+          amountCzk: validation.value.amountCzk,
+          trxId: validation.value.trxId,
+          purchasedAt: validation.value.purchasedAt,
+        });
+        emailSent = emailResult.ok;
+        emailId = emailResult.id;
+        emailError = emailResult.ok ? undefined : emailResult.error;
+      }
+    }
+
     console.log("Startovac webhook processed", {
       source: validation.value.source,
       trxId: validation.value.trxId,
       status: result.status,
       userId: result.userId,
       creditsDelta: result.creditsDelta,
+      emailSent,
+      emailId,
+      emailError,
     });
 
-    return jsonResponse({ ok: true, ...result }, 200);
+    return jsonResponse(
+      {
+        ok: true,
+        ...result,
+        emailSent,
+        ...(emailId ? { emailId } : {}),
+        ...(emailError ? { emailError } : {}),
+      },
+      200,
+    );
   }),
 });
 
