@@ -69,3 +69,50 @@ export const create = internalMutation({
     return id;
   },
 });
+
+const GRAYSCALE_COLORS = [
+  "#000000",
+  "#333333",
+  "#666666",
+  "#999999",
+  "#CCCCCC",
+  "#FFFFFF",
+];
+
+export const setColors = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    colors: v.optional(v.array(v.string())),
+    grayscale: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) {
+      throw new Error("Canvas not found");
+    }
+
+    const colors = args.grayscale ? GRAYSCALE_COLORS : args.colors;
+    if (!colors) {
+      throw new Error("Provide colors array or grayscale: true");
+    }
+
+    await ctx.db.patch(args.canvasId, { colors });
+    return { canvasId: args.canvasId, colors };
+  },
+});
+
+export const setEnforceColors = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    enforceColors: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) {
+      throw new Error("Canvas not found");
+    }
+
+    await ctx.db.patch(args.canvasId, { enforceColors: args.enforceColors });
+    return { canvasId: args.canvasId, enforceColors: args.enforceColors };
+  },
+});

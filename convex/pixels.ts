@@ -117,6 +117,8 @@ export const commit = mutation({
       previousColor?: string;
     }[] = [];
 
+    const allowedColors = new Set(canvas.colors.map((c) => c.toLowerCase()));
+
     const dedupedPixels = [
       ...new Map(pixels.map((px) => [`${px.x},${px.y}`, px])).values(),
     ];
@@ -127,6 +129,10 @@ export const commit = mutation({
 
       if (!HEX_COLOR_RE.test(px.color)) {
         throw new Error("Invalid color format");
+      }
+
+      if (canvas.enforceColors && !allowedColors.has(px.color.toLowerCase())) {
+        throw new Error(`Color ${px.color} not in canvas palette`);
       }
 
       const existing = await ctx.db
