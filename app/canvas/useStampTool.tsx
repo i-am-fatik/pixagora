@@ -24,10 +24,16 @@ const rgbToHex = (r: number, g: number, b: number) =>
 
 function getImageSize(source: CanvasImageSource) {
   if ("naturalWidth" in source && "naturalHeight" in source) {
-    return { width: source.naturalWidth, height: source.naturalHeight };
+    return {
+      width: Number(source.naturalWidth),
+      height: Number(source.naturalHeight),
+    };
   }
   if ("width" in source && "height" in source) {
-    return { width: source.width, height: source.height };
+    return {
+      width: Number(source.width),
+      height: Number(source.height),
+    };
   }
   return null;
 }
