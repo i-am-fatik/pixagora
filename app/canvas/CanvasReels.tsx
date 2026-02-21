@@ -48,8 +48,15 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [containerHeight, setContainerHeight] = useState(0);
-  const [hintDismissed, setHintDismissed] = useState(false);
-  const [showHint, setShowHint] = useState(false);
+  const [hintDismissed, setHintDismissed] = useState(() => {
+    if (typeof window === "undefined") { return false; }
+    try {
+      return window.localStorage.getItem(HINT_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [hintTimerDone, setHintTimerDone] = useState(false);
   const startYRef = useRef(0);
   const activeIndexRef = useRef(activeIndex);
   const dragOffsetRef = useRef(0);
@@ -90,7 +97,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {return;}
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
@@ -102,43 +109,18 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (activeIndexRef.current > count - 1) {
-      updateIndex(count - 1);
-    }
-  }, [count, updateIndex]);
+  // Clamp activeIndex when count shrinks
+  if (count > 0 && activeIndex > count - 1) {
+    setActiveIndex(Math.max(0, count - 1));
+  }
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const dismissed = window.localStorage.getItem(HINT_STORAGE_KEY) === "1";
-      setHintDismissed(dismissed);
-    } catch {
-      // ignore storage access errors
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!hasMultiple || activeIndex !== 0 || hintDismissed) {
-      setShowHint(false);
-      return;
-    }
+    if (!hasMultiple || hintDismissed) { return; }
     const timeoutId = window.setTimeout(() => {
-      setShowHint(true);
+      setHintTimerDone(true);
     }, HINT_DELAY_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [activeIndex, hasMultiple, hintDismissed]);
-
-  useEffect(() => {
-    if (activeIndex === 0 || hintDismissed) return;
-    setHintDismissed(true);
-    setShowHint(false);
-    try {
-      window.localStorage.setItem(HINT_STORAGE_KEY, "1");
-    } catch {
-      // ignore storage access errors
-    }
-  }, [activeIndex, hintDismissed]);
+  }, [hasMultiple, hintDismissed]);
 
   const setOffset = (value: number) => {
     dragOffsetRef.current = value;
@@ -157,14 +139,14 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   };
 
   const handleMove = (clientY: number) => {
-    if (!isDraggingRef.current) return;
+    if (!isDraggingRef.current) {return;}
     const delta = clientY - startYRef.current;
     const height = getHeight();
     setOffset(clamp(delta, -height * 0.6, height * 0.6));
   };
 
   const handleEnd = useCallback(() => {
-    if (!isDraggingRef.current) return;
+    if (!isDraggingRef.current) {return;}
     const height = getHeight();
     const threshold = Math.max(60, height * 0.12);
     if (Math.abs(dragOffsetRef.current) >= threshold) {
@@ -180,8 +162,16 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
       setOffset(0);
       setDragging(false);
       updateIndex(nextIndex);
+      if (!hintDismissed && nextIndex !== 0) {
+        setHintDismissed(true);
+        try {
+          window.localStorage.setItem(HINT_STORAGE_KEY, "1");
+        } catch {
+          // ignore storage access errors
+        }
+      }
     },
-    [updateIndex],
+    [updateIndex, hintDismissed],
   );
 
   useImperativeHandle(
@@ -197,8 +187,8 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!hasMultiple) return;
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (!hasMultiple) {return;}
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {return;}
       const target = event.target as HTMLElement | null;
       if (
         target &&
@@ -222,7 +212,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     };
   }, [goToIndex, hasMultiple]);
 
-  const height = getHeight();
+  const height = containerHeight || 1;
   const baseTranslate = -(activeIndex * height) + dragOffset;
   const clampedTranslate = clamp(baseTranslate, -height * (count - 1), 0);
   const translate = `translateY(${clampedTranslate}px)`;
@@ -232,7 +222,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   );
 
   const handleLabelClick = () => {
-    if (!hasMultiple) return;
+    if (!hasMultiple) {return;}
     const nextIndex = activeIndexRef.current + 1;
     goToIndex(nextIndex > count - 1 ? 0 : nextIndex);
   };
@@ -285,7 +275,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
         </button>
       </div>
 
-      {showHint && hasMultiple && activeIndex === 0 && (
+      {hintTimerDone && hasMultiple && activeIndex === 0 && !hintDismissed && (
         <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full bg-background/65 px-3 py-2 text-[11px] font-medium text-muted-foreground shadow-sm md:hidden">
           <div className="flex flex-col items-center leading-none text-muted-foreground/80">
             <ChevronUp

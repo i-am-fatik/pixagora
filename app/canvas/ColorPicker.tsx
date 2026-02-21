@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { PaintBucket, Pipette } from "lucide-react";
+
+const subscribeNoop = () => () => {};
+const getEyeDropperSupported = () =>
+  typeof window !== "undefined" &&
+  "EyeDropper" in (window as unknown as Record<string, unknown>);
+const getEyeDropperServer = () => false;
 
 type ColorPickerProps = {
   colors: string[];
@@ -14,19 +20,20 @@ export function ColorPicker({
   selectedColor,
   onSelectColor,
 }: ColorPickerProps) {
-  const [eyeDropperSupported, setEyeDropperSupported] = useState(false);
-
-  useEffect(() => {
-    setEyeDropperSupported(
-      typeof window !== "undefined" &&
-        "EyeDropper" in (window as unknown as Record<string, unknown>),
-    );
-  }, []);
+  const eyeDropperSupported = useSyncExternalStore(
+    subscribeNoop,
+    getEyeDropperSupported,
+    getEyeDropperServer,
+  );
 
   const handleEyeDropper = async () => {
-    if (!eyeDropperSupported) return;
-    const EyeDropperCtor = (window as unknown as { EyeDropper?: any }).EyeDropper;
-    if (!EyeDropperCtor) return;
+    if (!eyeDropperSupported) {return;}
+    const EyeDropperCtor = (
+      window as unknown as {
+        EyeDropper?: new () => { open(): Promise<{ sRGBHex: string }> };
+      }
+    ).EyeDropper;
+    if (!EyeDropperCtor) {return;}
     try {
       const dropper = new EyeDropperCtor();
       const result = await dropper.open();

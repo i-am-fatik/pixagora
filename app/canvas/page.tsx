@@ -150,7 +150,7 @@ export default function CanvasPage() {
 
   const commitPixels = useMutation(api.pixels.commit);
 
-  const colors = activeCanvas?.colors ?? ["#000000"];
+  const colors = useMemo(() => activeCanvas?.colors ?? ["#000000"], [activeCanvas?.colors]);
   const gridWidth = activeCanvas?.width ?? 20;
   const gridHeight = activeCanvas?.height ?? 20;
   const pixelPrice = activeCanvas?.pixelPrice ?? 1;
@@ -198,12 +198,12 @@ export default function CanvasPage() {
     } catch {}
   }, [pendingState]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     if (colors.length > 0 && !colors.includes(selectedColor)) {
       setSelectedColor(colors[0]);
     }
-  }, [colors]);
+  }, [colors, selectedColor, setSelectedColor]);
 
   const applyLogin = useCallback((nextToken: string) => {
     const trimmed = nextToken.trim();

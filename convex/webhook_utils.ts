@@ -32,7 +32,9 @@ export async function signPixagoraPayload(
 }
 
 export function timingSafeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
+  if (a.length !== b.length) {
+    return false;
+  }
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -42,7 +44,9 @@ export function timingSafeEqualHex(a: string, b: string): boolean {
 
 export function isDryRun(): boolean {
   const value = process.env.PIXAGORA_WEBHOOK_DRY_RUN;
-  if (!value) return false;
+  if (!value) {
+    return false;
+  }
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 

@@ -299,7 +299,10 @@ export function Canvas({
     [clampTranslate],
   );
 
-  const clampScale = (value: number) => clamp(value, MIN_ZOOM, MAX_ZOOM);
+  const clampScale = useCallback(
+    (value: number) => clamp(value, MIN_ZOOM, MAX_ZOOM),
+    [],
+  );
 
   const zoomTo = useCallback(
     (nextScale: number, focusX: number, focusY: number) => {
@@ -315,7 +318,7 @@ export function Canvas({
       translateRef.current = clampedTranslate;
       setTranslate(clampedTranslate);
     },
-    [clampTranslate],
+    [clampScale, clampTranslate],
   );
 
   const resetView = useCallback(() => {
@@ -367,13 +370,16 @@ export function Canvas({
     baseCellSize,
     selectedColor,
   });
-  drawRef.current = {
-    pixelMap,
-    width,
-    height,
-    baseCellSize,
-    selectedColor,
-  };
+
+  useEffect(() => {
+    drawRef.current = {
+      pixelMap,
+      width,
+      height,
+      baseCellSize,
+      selectedColor,
+    };
+  }, [pixelMap, width, height, baseCellSize, selectedColor]);
 
   const scheduleRedraw = useCallback(() => {
     if (needsDrawRef.current) {
@@ -447,10 +453,6 @@ export function Canvas({
     translateRef.current = clamped;
     setTranslate(clamped);
   }, [baseSize.height, baseSize.width, clampTranslate, containerSize]);
-
-  useEffect(() => {
-    resetView();
-  }, [resetView]);
 
   useEffect(() => {
     return () => {

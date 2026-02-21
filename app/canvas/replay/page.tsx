@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "convex/react";
@@ -74,30 +74,28 @@ function ReplayPageInner() {
   const [stepIndex, setStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<Speed>(1);
+  const [prevCanvasId, setPrevCanvasId] = useState(canvasId);
 
   type Pixel = { x: number; y: number; color: string };
-  const pixelMapRef = useRef(new Map<string, Pixel>());
-  const appliedUpToRef = useRef(0);
 
-  useEffect(() => {
+  if (canvasId !== prevCanvasId) {
+    setPrevCanvasId(canvasId);
     setStepIndex(0);
     setIsPlaying(false);
-    pixelMapRef.current.clear();
-    appliedUpToRef.current = 0;
-  }, [canvasId]);
-
-  useEffect(() => {
-    if (isPlaying && stepIndex >= totalSteps && totalSteps > 0) {
-      setIsPlaying(false);
-    }
-  }, [stepIndex, totalSteps, isPlaying]);
+  }
 
   useEffect(() => {
     if (!isPlaying || totalSteps === 0) {
       return;
     }
     const interval = setInterval(() => {
-      setStepIndex((prev) => Math.min(prev + 1, totalSteps));
+      setStepIndex((prev) => {
+        const next = Math.min(prev + 1, totalSteps);
+        if (next >= totalSteps) {
+          setIsPlaying(false);
+        }
+        return next;
+      });
     }, 500 / speed);
     return () => clearInterval(interval);
   }, [isPlaying, speed, totalSteps]);
@@ -107,31 +105,15 @@ function ReplayPageInner() {
       return [];
     }
     const target = Math.min(stepIndex, sortedTransactions.length);
-    const map = pixelMapRef.current;
-    const applied = appliedUpToRef.current;
-
     if (target === 0) {
-      map.clear();
-      appliedUpToRef.current = 0;
       return [];
     }
-
-    if (target < applied) {
-      map.clear();
-      for (let i = 0; i < target; i++) {
-        for (const c of sortedTransactions[i].changes) {
-          map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
-        }
-      }
-    } else {
-      for (let i = applied; i < target; i++) {
-        for (const c of sortedTransactions[i].changes) {
-          map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
-        }
+    const map = new Map<string, Pixel>();
+    for (let i = 0; i < target; i++) {
+      for (const c of sortedTransactions[i].changes) {
+        map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
       }
     }
-
-    appliedUpToRef.current = target;
     return Array.from(map.values());
   }, [sortedTransactions, stepIndex]);
 

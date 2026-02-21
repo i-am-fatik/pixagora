@@ -17,6 +17,7 @@ export const getByCanvas = query({
   },
 });
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function maybeCreateNextCanvas(
   ctx: MutationCtx,
   canvas: Doc<"canvases">,
