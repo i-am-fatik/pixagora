@@ -15,7 +15,13 @@ export default defineSchema({
     amountSats: v.number(),
     creditsDelta: v.number(),
     createdAt: v.number(),
-  }),
+    source: v.optional(v.string()),
+    trxId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    amountCzk: v.optional(v.number()),
+    reward: v.optional(v.string()),
+    purchasedAt: v.optional(v.number()),
+  }).index("by_source_trxId", ["source", "trxId"]),
 
   pixels: defineTable({
     x: v.number(),
