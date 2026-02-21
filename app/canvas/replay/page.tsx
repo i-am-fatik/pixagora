@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "convex/react";
@@ -44,7 +44,7 @@ function ErrorScreen({ message }: { message: string }) {
   );
 }
 
-export default function ReplayPage() {
+function ReplayPageInner() {
   const searchParams = useSearchParams();
   const canvasIdParam = searchParams.get("canvasId");
 
@@ -230,5 +230,13 @@ export default function ReplayPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ReplayPage() {
+  return (
+    <Suspense>
+      <ReplayPageInner />
+    </Suspense>
   );
 }

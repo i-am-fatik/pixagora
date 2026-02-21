@@ -117,7 +117,7 @@ export default function CanvasPage() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [invalidToken, setInvalidToken] = useState(false);
   const [selectedColor, setSelectedColorRaw] = useState(
-    () => localStorage.getItem("pixagora-color") ?? "#000000",
+    () => (typeof window !== "undefined" ? localStorage.getItem("pixagora-color") : null) ?? "#000000",
   );
   const setSelectedColor = useCallback((color: string) => {
     setSelectedColorRaw(color);
