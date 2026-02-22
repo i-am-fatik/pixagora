@@ -277,11 +277,13 @@ export default function CanvasPage() {
   }, [showInvalidToken]);
 
   const handleOpenAnonymousPopup = () => {
+    setConfirmOpen(false);
     setPopupMode("anonymous");
     setPopupOpen(true);
   };
 
   const handleOpenBuyCredits = () => {
+    setConfirmOpen(false);
     setPopupMode("buy-credits");
     setPopupOpen(true);
   };
@@ -352,10 +354,7 @@ export default function CanvasPage() {
       handleOpenAnonymousPopup();
       return;
     }
-    if (typeof user?.credits === "number" && user.credits < totalCost) {
-      handleOpenBuyCredits();
-      return;
-    }
+    setPopupOpen(false);
     setInitialCost(totalCost);
     setInitialPendingCount(pendingCount);
     setConfirmOpen(true);
@@ -394,7 +393,7 @@ export default function CanvasPage() {
   };
 
   const handleCommit = async (): Promise<boolean> => {
-    if (!isAuthenticated || pendingCount === 0 || isCommitting || !canvasId) {
+    if (!confirmOpen || !isAuthenticated || pendingCount === 0 || isCommitting || !canvasId) {
       return false;
     }
     setIsCommitting(true);
@@ -411,6 +410,7 @@ export default function CanvasPage() {
       const result = await commitPixels({ token, canvasId, pixels: payload, expectedCost: totalCost });
       if (result && "error" in result) {
         if (result.error === "NOT_ENOUGH_CREDITS") {
+          setConfirmOpen(false);
           handleOpenBuyCredits();
         } else if (result.error === "PRICE_CHANGED") {
           setInitialCost(totalCost);
@@ -467,7 +467,7 @@ export default function CanvasPage() {
         onCommit={handleOpenConfirm}
         canUndo={pendingState.history.length > 0}
         canRedo={pendingState.redo.length > 0}
-        canCommit={isAuthenticated && pendingCount > 0 && !!canvasId}
+        canCommit={pendingCount > 0 && !!canvasId}
         isCommitting={isCommitting}
         showFooter={true}
         replayCanvasId={canvasId}
@@ -485,7 +485,7 @@ export default function CanvasPage() {
             enableTouchSwipe={false}
             onIndexChange={handleReelIndexChange}
             renderItem={(index) => (
-              <div className="flex h-full w-full items-center justify-center p-6 box-border overflow-hidden">
+              <div className="flex h-full w-full items-center justify-center overflow-hidden">
                 {isLoadingUser ? (
                   <div className="text-sm text-muted-foreground">
                     Načítám uživatele…
