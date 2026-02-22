@@ -24,6 +24,7 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [devLoginUrl, setDevLoginUrl] = useState<string | null>(null);
   const requestMagicLink = useAction(api.auth.requestMagicLink);
   const isSendingRef = useRef(false);
 
@@ -36,6 +37,7 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
     setEmail("");
     setStatus("idle");
     setErrorMsg("");
+    setDevLoginUrl(null);
     onClose();
   };
 
@@ -54,7 +56,10 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
     setStatus("sending");
     setErrorMsg("");
     try {
-      await requestMagicLink({ email: trimmed });
+      const res = await requestMagicLink({ email: trimmed });
+      if (res?.devLoginUrl) {
+        setDevLoginUrl(res.devLoginUrl);
+      }
       setStatus("sent");
     } catch (err) {
       setStatus("error");
@@ -178,9 +183,19 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
             </div>
 
             {status === "sent" ? (
-              <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-3 text-sm text-green-700 dark:text-green-400">
-                Odkaz jsme ti poslali na{" "}
-                <strong>{email.trim()}</strong>. Zkontroluj svou schránku.
+              <div className="space-y-2">
+                <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-3 text-sm text-green-700 dark:text-green-400">
+                  Odkaz jsme ti poslali na{" "}
+                  <strong>{email.trim()}</strong>. Zkontroluj svou schránku.
+                </div>
+                {devLoginUrl && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                    <span className="font-medium">[DEV]</span>{" "}
+                    <a href={devLoginUrl} className="underline break-all">
+                      {devLoginUrl}
+                    </a>
+                  </div>
+                )}
               </div>
             ) : (
               <>
