@@ -12,12 +12,13 @@ type PixagoraPopupProps = {
   open: boolean;
   onClose: () => void;
   mode: "anonymous" | "buy-credits";
+  onOpenBtcPay: () => void;
 };
 
 type View = "main" | "login";
 type Status = "idle" | "sending" | "sent" | "error";
 
-export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
+export function PixagoraPopup({ open, onClose, mode, onOpenBtcPay }: PixagoraPopupProps) {
   const [view, setView] = useState<View>("main");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -118,24 +119,13 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
               >
                 Podpořit na Startovači
               </a>
-              {BTCPAY_URL ? (
-                <a
-                  href={BTCPAY_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                >
-                  Zaplatit Bitcoinem
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="inline-flex h-10 items-center justify-center rounded-md border px-4 text-sm font-medium text-muted-foreground opacity-50"
-                >
-                  Zaplatit Bitcoinem (brzy)
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={onOpenBtcPay}
+                className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+              >
+                Zaplatit Bitcoinem
+              </button>
             </div>
 
             {mode === "anonymous" && (

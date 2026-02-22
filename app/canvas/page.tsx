@@ -14,6 +14,7 @@ import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
 import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
 import { PixagoraPopup } from "./PixagoraPopup";
+import { BtcPayPurchase } from "./BtcPayPurchase";
 import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 
@@ -118,6 +119,7 @@ export default function CanvasPage() {
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupMode, setPopupMode] = useState<"anonymous" | "buy-credits">("anonymous");
   const [selectedColor, setSelectedColorRaw] = useState("#000000");
+  const [btcPayPurchaseOpen, setBtcPayPurchaseOpen] = useState(false);
   const setSelectedColor = useCallback((color: string) => {
     setSelectedColorRaw(color);
     localStorage.setItem("pixagora-color", color);
@@ -204,7 +206,7 @@ export default function CanvasPage() {
     } catch {}
   }, [pendingState]);
 
-   
+
   const selectedColorRef = useRef(selectedColor);
   useEffect(() => {
     selectedColorRef.current = selectedColor;
@@ -527,6 +529,10 @@ export default function CanvasPage() {
         open={popupOpen}
         onClose={() => setPopupOpen(false)}
         mode={popupMode}
+        onOpenBtcPay={() => {
+          setPopupOpen(false);
+          setBtcPayPurchaseOpen(true);
+        }}
       />
 
       {confirmOpen && (
@@ -588,6 +594,11 @@ export default function CanvasPage() {
           </div>
         </div>
       )}
+
+      <BtcPayPurchase
+        open={btcPayPurchaseOpen}
+        onClose={() => setBtcPayPurchaseOpen(false)}
+      />
     </>
   );
 }
