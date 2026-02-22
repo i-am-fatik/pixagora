@@ -253,7 +253,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden touch-none select-none"
+      className={`relative h-full w-full overflow-hidden touch-none select-none ${isDragging ? "cursor-move" : "cursor-pointer"}`}
       {...touchHandlers}
     >
       <button
