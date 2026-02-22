@@ -713,7 +713,7 @@ function ChatPanel({
             </div>
           );
           })}
-          {messages.length === 0 && status === "Loaded" && (
+          {messages.length === 0 && status === "Exhausted" && (
             <div className="text-center text-xs text-muted-foreground">
               Zatím žádné zprávy.
             </div>
