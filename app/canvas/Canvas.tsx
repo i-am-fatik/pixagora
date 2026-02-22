@@ -527,7 +527,9 @@ export function Canvas({
       const rect = container.getBoundingClientRect();
       const focusX = event.clientX - rect.left;
       const focusY = event.clientY - rect.top;
-      const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+      const isTrackpadPinch = event.ctrlKey === true;
+      const zoomSpeed = isTrackpadPinch ? 0.004 : 0.0015;
+      const zoomFactor = Math.exp(-event.deltaY * zoomSpeed);
       zoomTo(scaleRef.current * zoomFactor, focusX, focusY);
     };
     container.addEventListener("wheel", handleWheel, { passive: false });
