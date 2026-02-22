@@ -60,25 +60,10 @@ function validateStartovacPayload(payload: unknown):
   return { ok: true, value: data as StartovacPayload, purchasedAtMs };
 }
 
-function jsonResponse(body: unknown, status = 200, cors = false): Response {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cors) {
-    headers["Access-Control-Allow-Origin"] = process.env.PIXAGORA_APP_URL ?? "*";
-    headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type";
-  }
-  return new Response(JSON.stringify(body), { status, headers });
-}
-
-function corsPreflightResponse(): Response {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": process.env.PIXAGORA_APP_URL ?? "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Max-Age": "86400",
-    },
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
   });
 }
 
@@ -298,19 +283,13 @@ function buildDevLoginUrl(token: string): string {
 
 http.route({
   path: "/api/auth/magic-link",
-  method: "OPTIONS",
-  handler: httpAction(async () => corsPreflightResponse()),
-});
-
-http.route({
-  path: "/api/auth/magic-link",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const body = await request.json();
     const email = typeof body?.email === "string" ? body.email.trim() : "";
 
     if (!EMAIL_REGEX.test(email)) {
-      return jsonResponse({ ok: false, error: "Neplatná emailová adresa" }, 400, true);
+      return jsonResponse({ ok: false, error: "Neplatná emailová adresa" }, 400);
     }
 
     // DEV fallback: when Resend config is missing, return login link directly
@@ -319,7 +298,7 @@ http.route({
         internal.credits.findOrCreateUserMutation,
         { email },
       );
-      return jsonResponse({ ok: true, devLoginUrl: buildDevLoginUrl(user.token) }, 200, true);
+      return jsonResponse({ ok: true, devLoginUrl: buildDevLoginUrl(user.token) });
     }
 
     const user = await ctx.runMutation(
@@ -327,7 +306,7 @@ http.route({
       { email },
     );
     if (user.rateLimited) {
-      return jsonResponse({ ok: true }, 200, true);
+      return jsonResponse({ ok: true });
     }
 
     const result = await sendMagicLinkEmail({
@@ -335,10 +314,10 @@ http.route({
       token: user.token,
     });
     if (!result.ok) {
-      return jsonResponse({ ok: false, error: result.error ?? "Failed to send email" }, 500, true);
+      return jsonResponse({ ok: false, error: result.error ?? "Failed to send email" }, 500);
     }
 
-    return jsonResponse({ ok: true }, 200, true);
+    return jsonResponse({ ok: true });
   }),
 });
 

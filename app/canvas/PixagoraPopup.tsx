@@ -7,7 +7,6 @@ import { ArrowLeft, X } from "lucide-react";
 
 const STARTOVAC_URL = "https://www.startovac.cz/projects/anarchoagorismus";
 const BTCPAY_URL = process.env.NEXT_PUBLIC_BTCPAY_PAYMENT_URL;
-const CONVEX_SITE_URL = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
 
 type PixagoraPopupProps = {
   open: boolean;
@@ -54,7 +53,7 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
     setStatus("sending");
     setErrorMsg("");
     try {
-      const res = await fetch(`${CONVEX_SITE_URL}/api/auth/magic-link`, {
+      const res = await fetch("/api/auth/magic-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: trimmed }),
