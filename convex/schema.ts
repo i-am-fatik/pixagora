@@ -6,9 +6,18 @@ export default defineSchema({
     email: v.string(),
     token: v.string(),
     magicLinkSentAt: v.optional(v.number()),
+    nickname: v.optional(v.string()),
+    nicknameLower: v.optional(v.string()),
+    nicknameColor: v.optional(v.string()),
+    showEmail: v.optional(v.boolean()),
+    lastChatMessageAt: v.optional(v.number()),
+    chatWindowStart: v.optional(v.number()),
+    chatWindowCount: v.optional(v.number()),
+    lastChatMessageText: v.optional(v.string()),
   })
     .index("by_email", ["email"])
-    .index("by_token", ["token"]),
+    .index("by_token", ["token"])
+    .index("by_nickname_lower", ["nicknameLower"]),
 
   payments: defineTable({
     userId: v.id("users"),
@@ -67,4 +76,27 @@ export default defineSchema({
     userId: v.id("users"),
     updatedAt: v.number(),
   }).index("by_canvas_xy", ["canvasId", "x", "y"]),
+
+  chatMessages: defineTable({
+    userId: v.id("users"),
+    kind: v.union(v.literal("user"), v.literal("reward"), v.literal("commit")),
+    text: v.string(),
+    createdAt: v.number(),
+    authorName: v.string(),
+    authorColor: v.string(),
+    authorEmail: v.optional(v.string()),
+    commitId: v.optional(v.id("transactions")),
+    commitCanvasId: v.optional(v.id("canvases")),
+    commitPixelCount: v.optional(v.number()),
+    commitActorName: v.optional(v.string()),
+    commitActorEmail: v.optional(v.string()),
+    rewardSource: v.optional(v.string()),
+    rewardAmountCzk: v.optional(v.number()),
+    rewardCreditsDelta: v.optional(v.number()),
+    rewardName: v.optional(v.string()),
+    rewardDisplayName: v.optional(v.string()),
+    rewardDisplayEmail: v.optional(v.string()),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_user_createdAt", ["userId", "createdAt"]),
 });

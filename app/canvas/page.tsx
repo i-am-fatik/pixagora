@@ -15,6 +15,7 @@ import { CanvasPageLayout } from "./CanvasPageLayout";
 import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
 import { PixagoraPopup } from "./PixagoraPopup";
 import { BtcPayPurchase } from "./BtcPayPurchase";
+import { ChatWidget } from "./ChatWidget";
 import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 
@@ -117,7 +118,9 @@ export default function CanvasPage() {
   const [token, setToken] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
-  const [popupMode, setPopupMode] = useState<"anonymous" | "buy-credits">("anonymous");
+  const [popupMode, setPopupMode] = useState<"anonymous" | "buy-credits">(
+    "anonymous",
+  );
   const [selectedColor, setSelectedColorRaw] = useState("#000000");
   const [btcPayPurchaseOpen, setBtcPayPurchaseOpen] = useState(false);
   const setSelectedColor = useCallback((color: string) => {
@@ -157,7 +160,10 @@ export default function CanvasPage() {
 
   const commitPixels = useMutation(api.pixels.commit);
 
-  const colors = useMemo(() => activeCanvas?.colors ?? ["#000000"], [activeCanvas?.colors]);
+  const colors = useMemo(
+    () => activeCanvas?.colors ?? ["#000000"],
+    [activeCanvas?.colors],
+  );
   const enforceColors = activeCanvas?.enforceColors ?? false;
   const gridWidth = activeCanvas?.width ?? 20;
   const gridHeight = activeCanvas?.height ?? 20;
@@ -198,14 +204,19 @@ export default function CanvasPage() {
       return;
     }
     try {
-      if (Object.keys(pendingState.pending).length === 0 && pendingState.history.length === 0) {
+      if (
+        Object.keys(pendingState.pending).length === 0 &&
+        pendingState.history.length === 0
+      ) {
         localStorage.removeItem(`pixagora-pending-${id}`);
       } else {
-        localStorage.setItem(`pixagora-pending-${id}`, JSON.stringify(pendingState));
+        localStorage.setItem(
+          `pixagora-pending-${id}`,
+          JSON.stringify(pendingState),
+        );
       }
     } catch {}
   }, [pendingState]);
-
 
   const selectedColorRef = useRef(selectedColor);
   useEffect(() => {
@@ -213,7 +224,11 @@ export default function CanvasPage() {
   }, [selectedColor]);
 
   useEffect(() => {
-    if (enforceColors && colors.length > 0 && !colors.includes(selectedColorRef.current)) {
+    if (
+      enforceColors &&
+      colors.length > 0 &&
+      !colors.includes(selectedColorRef.current)
+    ) {
       setSelectedColor(colors[0]);
     }
   }, [colors, enforceColors, setSelectedColor]);
@@ -293,7 +308,10 @@ export default function CanvasPage() {
   const serverPixelMap = useMemo(() => {
     const map = new Map<string, { color: string; price: number }>();
     (pixels ?? []).forEach((pixel) => {
-      map.set(`${pixel.x},${pixel.y}`, { color: pixel.color, price: pixel.price });
+      map.set(`${pixel.x},${pixel.y}`, {
+        color: pixel.color,
+        price: pixel.price,
+      });
     });
     return map;
   }, [pixels]);
@@ -325,7 +343,9 @@ export default function CanvasPage() {
   const effectivePending = useMemo(() => {
     const result: Record<string, string> = {};
     for (const [key, color] of Object.entries(pendingState.pending)) {
-      const serverColor = (serverPixelMap.get(key)?.color ?? "#ffffff").toLowerCase();
+      const serverColor = (
+        serverPixelMap.get(key)?.color ?? "#ffffff"
+      ).toLowerCase();
       if (serverColor !== color.toLowerCase()) {
         result[key] = color;
       }
@@ -381,7 +401,11 @@ export default function CanvasPage() {
   const handlePixelClick = (x: number, y: number) => {
     const key = `${x},${y}`;
     const serverColor = serverPixelMap.get(key)?.color;
-    const visibleColor = (pendingState.pending[key] ?? serverColor ?? "#ffffff").toLowerCase();
+    const visibleColor = (
+      pendingState.pending[key] ??
+      serverColor ??
+      "#ffffff"
+    ).toLowerCase();
 
     if (selectedColor.toLowerCase() === visibleColor) {
       dispatch({ type: "apply", key, nextPending: undefined });
@@ -395,21 +419,30 @@ export default function CanvasPage() {
   };
 
   const handleCommit = async (): Promise<boolean> => {
-    if (!confirmOpen || !isAuthenticated || pendingCount === 0 || isCommitting || !canvasId) {
+    if (
+      !confirmOpen ||
+      !isAuthenticated ||
+      pendingCount === 0 ||
+      isCommitting ||
+      !canvasId
+    ) {
       return false;
     }
     setIsCommitting(true);
     try {
-      const payload = Object.entries(effectivePending).map(
-        ([key, color]) => {
-          const [x, y] = key.split(",").map(Number);
-          return { x, y, color };
-        },
-      );
+      const payload = Object.entries(effectivePending).map(([key, color]) => {
+        const [x, y] = key.split(",").map(Number);
+        return { x, y, color };
+      });
       if (payload.length === 0) {
         return false;
       }
-      const result = await commitPixels({ token, canvasId, pixels: payload, expectedCost: totalCost });
+      const result = await commitPixels({
+        token,
+        canvasId,
+        pixels: payload,
+        expectedCost: totalCost,
+      });
       if (result && "error" in result) {
         if (result.error === "NOT_ENOUGH_CREDITS") {
           setConfirmOpen(false);
@@ -477,7 +510,9 @@ export default function CanvasPage() {
         {totalCanvases === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
             <div className="text-sm text-muted-foreground">
-              {canvases === undefined ? "Načítám plátna…" : "Žádná plátna k zobrazení."}
+              {canvases === undefined
+                ? "Načítám plátna…"
+                : "Žádná plátna k zobrazení."}
             </div>
           </div>
         ) : (
@@ -498,12 +533,8 @@ export default function CanvasPage() {
                       pixels={
                         index === activeReelIndex ? activeCanvasPixels : []
                       }
-                      width={
-                        canvases?.[index]?.width ?? gridWidth
-                      }
-                      height={
-                        canvases?.[index]?.height ?? gridHeight
-                      }
+                      width={canvases?.[index]?.width ?? gridWidth}
+                      height={canvases?.[index]?.height ?? gridHeight}
                       selectedColor={selectedColor}
                       onPixelClick={(x, y) => {
                         if (index === activeReelIndex) {
@@ -514,7 +545,9 @@ export default function CanvasPage() {
                         index === activeReelIndex ? handleEdgeSwipe : undefined
                       }
                       highlightedPixels={
-                        index === activeReelIndex ? highlightedPixelSet : undefined
+                        index === activeReelIndex
+                          ? highlightedPixelSet
+                          : undefined
                       }
                     />
                   </div>
@@ -524,6 +557,12 @@ export default function CanvasPage() {
           />
         )}
       </CanvasPageLayout>
+
+      <ChatWidget
+        isLoggedIn={isAuthenticated}
+        token={token}
+        onRequestAuth={handleOpenAnonymousPopup}
+      />
 
       <PixagoraPopup
         open={popupOpen}
@@ -547,9 +586,12 @@ export default function CanvasPage() {
               <p className="text-sm text-muted-foreground">
                 Chystáš se zakoupit{" "}
                 <strong className="text-foreground">{pendingCount}</strong>{" "}
-                {pendingCount === 1 ? "pixel" : pendingCount < 5 ? "pixely" : "pixelů"}{" "}
-                za{" "}
-                <strong className="text-foreground">{totalCost}</strong>{" "}
+                {pendingCount === 1
+                  ? "pixel"
+                  : pendingCount < 5
+                    ? "pixely"
+                    : "pixelů"}{" "}
+                za <strong className="text-foreground">{totalCost}</strong>{" "}
                 kreditů.
               </p>
             </div>
@@ -558,9 +600,9 @@ export default function CanvasPage() {
                 <p className="font-medium">Cena se změnila!</p>
                 <p className="mt-0.5 text-xs">
                   Někdo jiný mezitím zakoupil pixel, který chceš přepsat.
-                  Přepsání stojí víc. Celková cena se změnila
-                  z <strong>{initialCost}</strong> na{" "}
-                  <strong>{totalCost}</strong> kreditů.
+                  Přepsání stojí víc. Celková cena se změnila z{" "}
+                  <strong>{initialCost}</strong> na <strong>{totalCost}</strong>{" "}
+                  kreditů.
                 </p>
               </div>
             )}

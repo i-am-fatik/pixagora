@@ -207,12 +207,29 @@ export const commit = mutation({
       });
     }
 
-    await ctx.db.insert("transactions", {
+    const transactionId = await ctx.db.insert("transactions", {
       canvasId,
       userId: user._id,
       timestamp: now,
       cost: totalCost,
       changes,
+    });
+
+    const commitActorName = user.nickname?.trim() || "Anonymous";
+    const commitActorEmail = user.showEmail ? user.email : undefined;
+    const commitPixelCount = changes.length;
+    await ctx.db.insert("chatMessages", {
+      userId: user._id,
+      kind: "commit",
+      text: `${commitActorName} zakreslil ${commitPixelCount} px.`,
+      createdAt: now,
+      authorName: "Pixagora bot",
+      authorColor: "#ffffff",
+      commitId: transactionId,
+      commitCanvasId: canvasId,
+      commitPixelCount,
+      commitActorName,
+      commitActorEmail,
     });
 
     // auto-creating new canvases OFF

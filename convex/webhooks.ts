@@ -56,6 +56,27 @@ export const processPayment = internalMutation({
       purchasedAt: args.purchasedAt,
     });
 
+    if (args.source === "startovac") {
+      const displayName = user.nickname?.trim() || "Anonym";
+      const displayEmail = user.showEmail ? user.email : undefined;
+      const amountLabel = Math.round(args.amountCzk);
+      const text = `${displayName} podpořil projekt ${amountLabel} Kč přes Startovač a získal ${creditsDelta} kreditů.`;
+      await ctx.db.insert("chatMessages", {
+        userId: user._id,
+        kind: "reward",
+        text,
+        createdAt: Date.now(),
+        authorName: "Pixagora bot",
+        authorColor: "#ffffff",
+        rewardSource: args.source,
+        rewardAmountCzk: args.amountCzk,
+        rewardCreditsDelta: creditsDelta,
+        rewardName: args.reward,
+        rewardDisplayName: displayName,
+        rewardDisplayEmail: displayEmail,
+      });
+    }
+
     return { status: "ok" as const, userId: user._id, creditsDelta };
   },
 });
