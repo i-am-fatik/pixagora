@@ -55,9 +55,6 @@ export function HowItWorksModal({ open, onClose }: HowItWorksModalProps) {
             <strong className="text-foreground">2× tolik</strong>, co zaplatil
             předchozí autor.
           </p>
-          <p>
-            Čím víc se pixel přemalovává, tím je dražší.
-          </p>
         </div>
       </div>
     </div>

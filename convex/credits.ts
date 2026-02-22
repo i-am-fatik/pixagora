@@ -61,6 +61,29 @@ export async function findOrCreateUser(
 
 const MAGIC_LINK_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
+export const findUserForLogin = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const normalized = normalizeEmail(email);
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalized))
+      .unique();
+    if (!user) {
+      return { found: false as const };
+    }
+    const now = Date.now();
+    if (
+      user.magicLinkSentAt &&
+      now - user.magicLinkSentAt < MAGIC_LINK_COOLDOWN_MS
+    ) {
+      return { found: true as const, userId: user._id, token: user.token, email: user.email, rateLimited: true };
+    }
+    await ctx.db.patch(user._id, { magicLinkSentAt: now });
+    return { found: true as const, userId: user._id, token: user.token, email: user.email, rateLimited: false };
+  },
+});
+
 export const findOrCreateUserMutation = internalMutation({
   args: { email: v.string() },
   handler: async (ctx, { email }) => {
