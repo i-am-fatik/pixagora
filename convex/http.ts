@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import {
   isDryRun,
+  sendMagicLinkEmail,
   sendStartovacTokenEmail,
   signPixagoraPayload,
   timingSafeEqualHex,
@@ -59,10 +60,25 @@ function validateStartovacPayload(payload: unknown):
   return { ok: true, value: data as StartovacPayload, purchasedAtMs };
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
+function jsonResponse(body: unknown, status = 200, cors = false): Response {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (cors) {
+    headers["Access-Control-Allow-Origin"] = process.env.PIXAGORA_APP_URL ?? "*";
+    headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+function corsPreflightResponse(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": process.env.PIXAGORA_APP_URL ?? "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Max-Age": "86400",
+    },
   });
 }
 
@@ -263,6 +279,66 @@ http.route({
       },
       200,
     );
+  }),
+});
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function canSendEmail(): boolean {
+  return !!(process.env.RESEND_API_KEY && process.env.PIXAGORA_EMAIL_FROM);
+}
+
+function buildDevLoginUrl(token: string): string {
+  const appUrl = process.env.PIXAGORA_APP_URL ?? "http://localhost:3000";
+  const loginPath = process.env.PIXAGORA_LOGIN_PATH ?? "/canvas";
+  const url = new URL(loginPath, appUrl);
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+http.route({
+  path: "/api/auth/magic-link",
+  method: "OPTIONS",
+  handler: httpAction(async () => corsPreflightResponse()),
+});
+
+http.route({
+  path: "/api/auth/magic-link",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+
+    if (!EMAIL_REGEX.test(email)) {
+      return jsonResponse({ ok: false, error: "Neplatná emailová adresa" }, 400, true);
+    }
+
+    // DEV fallback: when Resend config is missing, return login link directly
+    if (!canSendEmail()) {
+      const user = await ctx.runMutation(
+        internal.credits.findOrCreateUserMutation,
+        { email },
+      );
+      return jsonResponse({ ok: true, devLoginUrl: buildDevLoginUrl(user.token) }, 200, true);
+    }
+
+    const user = await ctx.runMutation(
+      internal.credits.findOrCreateUserMutation,
+      { email },
+    );
+    if (user.rateLimited) {
+      return jsonResponse({ ok: true }, 200, true);
+    }
+
+    const result = await sendMagicLinkEmail({
+      to: user.email,
+      token: user.token,
+    });
+    if (!result.ok) {
+      return jsonResponse({ ok: false, error: result.error ?? "Failed to send email" }, 500, true);
+    }
+
+    return jsonResponse({ ok: true }, 200, true);
   }),
 });
 

@@ -68,6 +68,7 @@ export const giveawayPayment = internalMutation({
     const user = await findOrCreateUser(ctx, email);
 
     await ctx.db.insert("payments", {
+      email: email,
       userId: user._id,
       creditsDelta: credits,
       createdAt: Date.now(),

@@ -1,14 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useAction } from "convex/react";
-import { api } from "../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, X } from "lucide-react";
 
 const STARTOVAC_URL = "https://www.startovac.cz/projects/anarchoagorismus";
 const BTCPAY_URL = process.env.NEXT_PUBLIC_BTCPAY_PAYMENT_URL;
+const CONVEX_SITE_URL = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
 
 type PixagoraPopupProps = {
   open: boolean;
@@ -25,7 +24,6 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [devLoginUrl, setDevLoginUrl] = useState<string | null>(null);
-  const requestMagicLink = useAction(api.auth.requestMagicLink);
   const isSendingRef = useRef(false);
 
   if (!open) {
@@ -56,9 +54,17 @@ export function PixagoraPopup({ open, onClose, mode }: PixagoraPopupProps) {
     setStatus("sending");
     setErrorMsg("");
     try {
-      const res = await requestMagicLink({ email: trimmed });
-      if (res?.devLoginUrl) {
-        setDevLoginUrl(res.devLoginUrl);
+      const res = await fetch(`${CONVEX_SITE_URL}/api/auth/magic-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "Nepodařilo se odeslat email");
+      }
+      if (data.devLoginUrl) {
+        setDevLoginUrl(data.devLoginUrl);
       }
       setStatus("sent");
     } catch (err) {
