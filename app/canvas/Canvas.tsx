@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
@@ -35,6 +34,7 @@ function drawGrid(
   cellSize: number,
   gap: number,
   hovered: { x: number; y: number } | null,
+  hoverPointer: { x: number; y: number } | null,
   selectedColor: string,
   translate: { x: number; y: number },
   scale: number,
@@ -50,6 +50,7 @@ function drawGrid(
   ctx.scale(scale, scale);
 
   const step = cellSize + gap;
+  const hoverFill = cellSize * scale >= 18;
   const invScale = 1 / scale;
   const visLeft = -translate.x * invScale;
   const visTop = -translate.y * invScale;
@@ -69,9 +70,34 @@ function drawGrid(
       const color = pixelMap.get(key);
       const isHovered = hovered?.x === x && hovered?.y === y;
 
-      ctx.globalAlpha = isHovered && !color ? 0.7 : 1;
-      ctx.fillStyle = isHovered ? selectedColor : (color ?? "#ffffff");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color ?? "#ffffff";
       ctx.fillRect(px, py, cellSize, cellSize);
+
+      if (isHovered && hoverFill) {
+        ctx.globalAlpha = color ? 1 : 0.7;
+        ctx.fillStyle = selectedColor;
+        ctx.fillRect(px, py, cellSize, cellSize);
+      } else if (isHovered) {
+        const outlineWidth = Math.max(1 / scale, 0.75);
+        const inset = outlineWidth / 2;
+        ctx.lineWidth = outlineWidth;
+        ctx.strokeStyle = "rgba(0,0,0,0.85)";
+        ctx.strokeRect(
+          px + inset,
+          py + inset,
+          cellSize - outlineWidth,
+          cellSize - outlineWidth,
+        );
+        ctx.lineWidth = outlineWidth * 0.6;
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.strokeRect(
+          px + inset,
+          py + inset,
+          cellSize - outlineWidth,
+          cellSize - outlineWidth,
+        );
+      }
     }
   }
 
@@ -120,6 +146,29 @@ function drawGrid(
 
   ctx.globalAlpha = 1;
   ctx.restore();
+
+  if (hovered && hoverPointer && !hoverFill) {
+    const radius = 6;
+    const offset = 14;
+    let cx = hoverPointer.x + offset;
+    let cy = hoverPointer.y + offset;
+    if (cx + radius + 2 > viewportW) {
+      cx = hoverPointer.x - offset;
+    }
+    if (cy + radius + 2 > viewportH) {
+      cy = hoverPointer.y - offset;
+    }
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = selectedColor;
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function hitTest(
@@ -160,6 +209,7 @@ export function Canvas({
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [scale, setScale] = useState(1);
@@ -195,8 +245,21 @@ export function Canvas({
   const needsDrawRef = useRef(false);
 
   const MIN_ZOOM = 1;
-  const MAX_ZOOM = 8;
+  const MAX_ZOOM = 12;
   const ZOOM_STEP = 1.5;
+  const [fitScale, setFitScale] = useState(0.9);
+
+  useEffect(() => {
+    const media = window.matchMedia("(pointer: coarse), (max-width: 768px)");
+    const update = () => setFitScale(media.matches ? 1 : 0.9);
+    update();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -235,8 +298,10 @@ export function Canvas({
     const totalGapY = CELL_GAP * Math.max(0, height - 1);
     const availableWidth = Math.max(0, containerSize.width - totalGapX);
     const availableHeight = Math.max(0, containerSize.height - totalGapY);
-    return Math.min(availableWidth / width, availableHeight / height);
-  }, [containerSize, height, width]);
+    return (
+      Math.min(availableWidth / width, availableHeight / height) * fitScale
+    );
+  }, [containerSize, fitScale, height, width]);
 
   const baseSize = useMemo(
     () => ({
@@ -435,6 +500,7 @@ export function Canvas({
         d.baseCellSize,
         CELL_GAP,
         hoveredCellRef.current,
+        hoverPointerRef.current,
         d.selectedColor,
         translateRef.current,
         scaleRef.current,
@@ -462,7 +528,17 @@ export function Canvas({
 
   useEffect(() => {
     scheduleRedraw();
-  }, [pixelMap, width, height, baseCellSize, selectedColor, translate, scale, highlightedPixels, scheduleRedraw]);
+  }, [
+    pixelMap,
+    width,
+    height,
+    baseCellSize,
+    selectedColor,
+    translate,
+    scale,
+    highlightedPixels,
+    scheduleRedraw,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -502,7 +578,9 @@ export function Canvas({
       const rect = container.getBoundingClientRect();
       const focusX = event.clientX - rect.left;
       const focusY = event.clientY - rect.top;
-      const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+      const isTrackpadPinch = event.ctrlKey === true;
+      const zoomSpeed = isTrackpadPinch ? 0.004 : 0.0015;
+      const zoomFactor = Math.exp(-event.deltaY * zoomSpeed);
       zoomTo(scaleRef.current * zoomFactor, focusX, focusY);
     };
     container.addEventListener("wheel", handleWheel, { passive: false });
@@ -577,9 +655,15 @@ export function Canvas({
           width,
           height,
         );
+        hoverPointerRef.current = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
         const prev = hoveredCellRef.current;
         if (cell?.x !== prev?.x || cell?.y !== prev?.y) {
           hoveredCellRef.current = cell;
+          scheduleRedraw();
+        } else {
           scheduleRedraw();
         }
       }
@@ -686,11 +770,7 @@ export function Canvas({
     }
 
     const origin = clickOriginRef.current;
-    if (
-      origin &&
-      !edgeSwipeTriggeredRef.current &&
-      !pinchRef.current
-    ) {
+    if (origin && !edgeSwipeTriggeredRef.current && !pinchRef.current) {
       const dist = Math.hypot(
         event.clientX - origin.x,
         event.clientY - origin.y,
@@ -733,16 +813,10 @@ export function Canvas({
     }
   };
 
-  const handleDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    const focusX = event.clientX - (rect?.left ?? 0);
-    const focusY = event.clientY - (rect?.top ?? 0);
-    zoomTo(scaleRef.current * ZOOM_STEP, focusX, focusY);
-  };
-
   const handleMouseLeave = () => {
     if (hoveredCellRef.current) {
       hoveredCellRef.current = null;
+      hoverPointerRef.current = null;
       scheduleRedraw();
     }
   };
@@ -754,12 +828,17 @@ export function Canvas({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      onDoubleClick={handleDoubleClick}
       onMouseLeave={handleMouseLeave}
-      className={`relative h-full w-full overflow-hidden select-none touch-none ${isInteracting ? "cursor-grabbing" : "cursor-grab"} ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
+      className={`relative h-full w-full overflow-hidden select-none touch-none ${isInteracting ? "cursor-grabbing" : "cursor-pointer"} ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full border bg-background/90 px-2 py-1 text-muted-foreground shadow-sm">
-        <span className="rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
+      <div
+        className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-full border border-black/10 bg-background/60 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-white/10"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onPointerMove={(event) => event.stopPropagation()}
+        onPointerCancel={(event) => event.stopPropagation()}
+      >
+        <span className="rounded-full  text-[11px] font-medium text-foreground">
           {Number.isFinite(scale)
             ? `${Math.abs(scale - 1) < 0.01 ? "1" : scale.toFixed(scale < 2 ? 2 : 1)}x`
             : "1x"}
@@ -768,7 +847,7 @@ export function Canvas({
           type="button"
           aria-label="Oddálit"
           onClick={() => zoomBy(-1)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
@@ -776,7 +855,7 @@ export function Canvas({
           type="button"
           aria-label="Resetovat zoom"
           onClick={resetView}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -784,7 +863,7 @@ export function Canvas({
           type="button"
           aria-label="Přiblížit"
           onClick={() => zoomBy(1)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>

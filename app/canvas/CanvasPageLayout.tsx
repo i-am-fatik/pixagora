@@ -218,11 +218,11 @@ export function CanvasPageLayout({
                   type="button"
                   onClick={onCommit}
                   disabled={!canCommit || isCommitting}
-                  aria-label="Commit"
+                  aria-label="Zakreslit"
                   className="inline-flex h-8 items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50 sm:h-9 sm:px-4 sm:text-sm"
                 >
                   <Check className="h-4 w-4 sm:hidden" />
-                  <span className="hidden sm:inline">Commit</span>
+                  <span className="hidden sm:inline">Zakreslit</span>
                 </button>
               </div>
             </div>
