@@ -29,13 +29,17 @@ export function ColorPicker({
   );
 
   const handleEyeDropper = async () => {
-    if (!eyeDropperSupported) {return;}
+    if (!eyeDropperSupported) {
+      return;
+    }
     const EyeDropperCtor = (
       window as unknown as {
         EyeDropper?: new () => { open(): Promise<{ sRGBHex: string }> };
       }
     ).EyeDropper;
-    if (!EyeDropperCtor) {return;}
+    if (!EyeDropperCtor) {
+      return;
+    }
     try {
       const dropper = new EyeDropperCtor();
       const result = await dropper.open();

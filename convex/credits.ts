@@ -1,4 +1,5 @@
-import { MutationCtx, QueryCtx } from "./_generated/server";
+import { MutationCtx, QueryCtx, internalMutation } from "./_generated/server";
+import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
 function generateToken(): string {
@@ -58,4 +59,20 @@ export async function findOrCreateUser(
   return user;
 }
 
+const MAGIC_LINK_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
+export const findOrCreateUserMutation = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const user = await findOrCreateUser(ctx, email);
+    const now = Date.now();
+    if (
+      user.magicLinkSentAt &&
+      now - user.magicLinkSentAt < MAGIC_LINK_COOLDOWN_MS
+    ) {
+      return { userId: user._id, token: user.token, email: user.email, rateLimited: true };
+    }
+    await ctx.db.patch(user._id, { magicLinkSentAt: now });
+    return { userId: user._id, token: user.token, email: user.email, rateLimited: false };
+  },
+});

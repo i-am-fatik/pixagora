@@ -13,9 +13,9 @@ import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
 import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
+import { PixagoraPopup } from "./PixagoraPopup";
 import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 type PendingChange = {
   key: string;
@@ -115,17 +115,21 @@ function pendingReducer(
 export default function CanvasPage() {
   const [token, setToken] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [invalidToken, setInvalidToken] = useState(false);
-  const [selectedColor, setSelectedColorRaw] = useState(
-    () => (typeof window !== "undefined" ? localStorage.getItem("pixagora-color") : null) ?? "#000000",
-  );
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [popupMode, setPopupMode] = useState<"anonymous" | "buy-credits">("anonymous");
+  const [selectedColor, setSelectedColorRaw] = useState("#000000");
   const setSelectedColor = useCallback((color: string) => {
     setSelectedColorRaw(color);
     localStorage.setItem("pixagora-color", color);
   }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("pixagora-color");
+    if (saved) {
+      setSelectedColorRaw(saved);
+    }
+  }, []);
   const [isCommitting, setIsCommitting] = useState(false);
-  const [noCreditsOpen, setNoCreditsOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [initialCost, setInitialCost] = useState(0);
   const [initialPendingCount, setInitialPendingCount] = useState(0);
@@ -133,8 +137,6 @@ export default function CanvasPage() {
     pendingReducer,
     initialPendingState,
   );
-  const loginDialogRef = useRef<HTMLDivElement | null>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const reelsRef = useRef<CanvasReelsHandle | null>(null);
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const canvasIdRef = useRef<string | undefined>(undefined);
@@ -222,8 +224,7 @@ export default function CanvasPage() {
     localStorage.setItem("pixagora-token", trimmed);
     setToken(trimmed);
     setLoggedIn(true);
-    setInvalidToken(false);
-    setLoginOpen(false);
+    setPopupOpen(false);
   }, []);
 
   useEffect(() => {
@@ -245,10 +246,6 @@ export default function CanvasPage() {
       window.removeEventListener("pixagora-login", handler);
     };
   }, [applyLogin]);
-
-  const handleLogin = () => {
-    applyLogin(token);
-  };
 
   const handleLogout = () => {
     localStorage.removeItem("pixagora-token");
@@ -273,74 +270,20 @@ export default function CanvasPage() {
       localStorage.removeItem("pixagora-token");
       setToken("");
       setLoggedIn(false);
-      setInvalidToken(true);
       dispatch({ type: "reset" });
-      setLoginOpen(true);
+      setPopupMode("anonymous");
+      setPopupOpen(true);
     }
   }, [showInvalidToken]);
 
-  useEffect(() => {
-    if (!loginOpen) {
-      return;
-    }
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-    const dialog = loginDialogRef.current;
-    const focusable = dialog?.querySelector<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusable) {
-      focusable.focus();
-    } else {
-      dialog?.focus();
-    }
-    return () => {
-      previousFocusRef.current?.focus?.();
-    };
-  }, [loginOpen]);
-
-  const handleModalKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      setLoginOpen(false);
-      return;
-    }
-    if (event.key !== "Tab") {
-      return;
-    }
-
-    const dialog = loginDialogRef.current;
-    if (!dialog) {
-      return;
-    }
-    const focusable = Array.from(
-      dialog.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      ),
-    ).filter(
-      (el) => !el.hasAttribute("disabled") && !el.getAttribute("aria-hidden"),
-    );
-    if (focusable.length === 0) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const isShift = event.shiftKey;
-
-    if (isShift && document.activeElement === first) {
-      last.focus();
-      event.preventDefault();
-    } else if (!isShift && document.activeElement === last) {
-      first.focus();
-      event.preventDefault();
-    }
+  const handleOpenAnonymousPopup = () => {
+    setPopupMode("anonymous");
+    setPopupOpen(true);
   };
 
-  const handleTokenChange = (value: string) => {
-    setToken(value);
-    if (invalidToken) {
-      setInvalidToken(false);
-    }
+  const handleOpenBuyCredits = () => {
+    setPopupMode("buy-credits");
+    setPopupOpen(true);
   };
 
   const serverPixelMap = useMemo(() => {
@@ -405,6 +348,14 @@ export default function CanvasPage() {
   );
 
   const handleOpenConfirm = () => {
+    if (!isAuthenticated) {
+      handleOpenAnonymousPopup();
+      return;
+    }
+    if (typeof user?.credits === "number" && user.credits < totalCost) {
+      handleOpenBuyCredits();
+      return;
+    }
     setInitialCost(totalCost);
     setInitialPendingCount(pendingCount);
     setConfirmOpen(true);
@@ -427,9 +378,6 @@ export default function CanvasPage() {
   };
 
   const handlePixelClick = (x: number, y: number) => {
-    if (!isAuthenticated) {
-      return;
-    }
     const key = `${x},${y}`;
     const serverColor = serverPixelMap.get(key)?.color;
     const visibleColor = (pendingState.pending[key] ?? serverColor ?? "#ffffff").toLowerCase();
@@ -463,7 +411,7 @@ export default function CanvasPage() {
       const result = await commitPixels({ token, canvasId, pixels: payload, expectedCost: totalCost });
       if (result && "error" in result) {
         if (result.error === "NOT_ENOUGH_CREDITS") {
-          setNoCreditsOpen(true);
+          handleOpenBuyCredits();
         } else if (result.error === "PRICE_CHANGED") {
           setInitialCost(totalCost);
           setInitialPendingCount(pendingCount);
@@ -504,10 +452,10 @@ export default function CanvasPage() {
       <CanvasPageLayout
         isLoggedIn={loggedIn}
         credits={user?.credits}
-        onSignIn={() => setLoginOpen(true)}
+        onSignIn={handleOpenAnonymousPopup}
         onSignOut={handleLogout}
+        onBuyCredits={handleOpenBuyCredits}
         signInDisabled={false}
-        showInvalidToken={invalidToken}
         colors={colors}
         enforceColors={enforceColors}
         selectedColor={selectedColor}
@@ -521,7 +469,7 @@ export default function CanvasPage() {
         canRedo={pendingState.redo.length > 0}
         canCommit={isAuthenticated && pendingCount > 0 && !!canvasId}
         isCommitting={isCommitting}
-        showFooter={isAuthenticated}
+        showFooter={true}
         replayCanvasId={canvasId}
       >
         {totalCanvases === 0 ? (
@@ -575,94 +523,11 @@ export default function CanvasPage() {
         )}
       </CanvasPageLayout>
 
-      {loginOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div
-            ref={loginDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="login-title"
-            aria-describedby="login-desc"
-            tabIndex={-1}
-            onKeyDown={handleModalKeyDown}
-            className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
-          >
-            <div className="space-y-1">
-              <h2 id="login-title" className="text-xl font-semibold">
-                Přihlášení
-              </h2>
-              <p id="login-desc" className="text-sm text-muted-foreground">
-                Zadej token a začni malovat.
-              </p>
-            </div>
-            <Input
-              value={token}
-              onChange={(event) => handleTokenChange(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && handleLogin()}
-              placeholder="Token..."
-              autoFocus
-            />
-            {invalidToken && (
-              <p className="text-sm text-destructive">
-                Tento token není platný. Zkus to prosím znovu.
-              </p>
-            )}
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={handleLogin}
-                disabled={!token.trim()}
-                className="flex-1"
-              >
-                Přihlásit
-              </Button>
-              <Button variant="secondary" onClick={() => setLoginOpen(false)}>
-                Zavřít
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {noCreditsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
-          >
-            <div className="space-y-1">
-              <h2 className="text-xl font-semibold">Nedostatek kreditů</h2>
-              <p className="text-sm text-muted-foreground">
-                Na malování nemáš dost kreditů. Ale můžeš si je dobít:
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <a
-                href="https://www.startovac.cz/projects/anarchoagorismus"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-              >
-                Podpořit na Startovači
-              </a>
-              <button
-                type="button"
-                disabled
-                className="inline-flex h-10 items-center justify-center rounded-md border px-4 text-sm font-medium text-muted-foreground opacity-50"
-              >
-                Zaplatit Bitcoinem (brzy)
-              </button>
-            </div>
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={() => setNoCreditsOpen(false)}
-            >
-              Zavřít
-            </Button>
-          </div>
-        </div>
-      )}
+      <PixagoraPopup
+        open={popupOpen}
+        onClose={() => setPopupOpen(false)}
+        mode={popupMode}
+      />
 
       {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

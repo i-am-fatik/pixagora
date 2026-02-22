@@ -97,7 +97,9 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {return;}
+    if (!container) {
+      return;
+    }
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
@@ -139,14 +141,18 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   };
 
   const handleMove = (clientY: number) => {
-    if (!isDraggingRef.current) {return;}
+    if (!isDraggingRef.current) {
+      return;
+    }
     const delta = clientY - startYRef.current;
     const height = getHeight();
     setOffset(clamp(delta, -height * 0.6, height * 0.6));
   };
 
   const handleEnd = useCallback(() => {
-    if (!isDraggingRef.current) {return;}
+    if (!isDraggingRef.current) {
+      return;
+    }
     const height = getHeight();
     const threshold = Math.max(60, height * 0.12);
     if (Math.abs(dragOffsetRef.current) >= threshold) {
@@ -187,8 +193,12 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!hasMultiple) {return;}
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {return;}
+      if (!hasMultiple) {
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (
         target &&
@@ -222,7 +232,9 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   );
 
   const handleLabelClick = () => {
-    if (!hasMultiple) {return;}
+    if (!hasMultiple) {
+      return;
+    }
     const nextIndex = activeIndexRef.current + 1;
     goToIndex(nextIndex > count - 1 ? 0 : nextIndex);
   };

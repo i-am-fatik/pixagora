@@ -14,8 +14,8 @@ type CanvasPageLayoutProps = {
   credits?: number;
   onSignIn: () => void;
   onSignOut: () => void;
+  onBuyCredits: () => void;
   signInDisabled?: boolean;
-  showInvalidToken?: boolean;
   showFooter?: boolean;
   faqHref?: string;
   colors: string[];
@@ -40,8 +40,8 @@ export function CanvasPageLayout({
   credits,
   onSignIn,
   onSignOut,
+  onBuyCredits,
   signInDisabled = false,
-  showInvalidToken = false,
   showFooter = true,
   faqHref = "/faq",
   colors,
@@ -88,6 +88,7 @@ export function CanvasPageLayout({
           </div>
 
           <div className="ml-auto flex items-center gap-3">
+            {/* Desktop: credits + buy + replay inline */}
             {isLoggedIn && typeof credits === "number" && (
               <div className="hidden items-baseline gap-1 text-sm font-medium text-muted-foreground sm:flex">
                 <span>Kredity</span>
@@ -96,29 +97,71 @@ export function CanvasPageLayout({
                 </span>
               </div>
             )}
-            {showInvalidToken && (
-              <span className="text-xs font-medium text-destructive">
-                Neplatný token
-              </span>
-            )}
             {replayCanvasId && (
-              <Button size="sm" variant="outline" asChild>
+              <Button size="sm" variant="outline" asChild className="hidden sm:inline-flex">
                 <Link href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}>
                   <Play className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Replay</span>
                 </Link>
               </Button>
             )}
-            <Button
-              size="sm"
-              variant={isLoggedIn ? "secondary" : "default"}
-              onClick={isLoggedIn ? onSignOut : onSignIn}
-              disabled={isLoggedIn ? false : signInDisabled}
-            >
-              {isLoggedIn ? "Odhlásit" : "Přihlásit"}
-            </Button>
+            {isLoggedIn ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={onBuyCredits}
+                  className="hidden sm:inline-flex"
+                >
+                  Koupit kredity
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={onSignOut}
+                >
+                  Odhlásit
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={onSignIn}
+                disabled={signInDisabled}
+              >
+                Kreslit
+              </Button>
+            )}
           </div>
         </div>
+
+        {/* Mobile second row: credits + actions */}
+        {isLoggedIn && (
+          <div className="mx-auto flex w-full max-w-6xl items-center gap-2 border-t px-4 py-1.5 sm:hidden">
+            {typeof credits === "number" && (
+              <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+                <Coins className="h-3.5 w-3.5" />
+                <span className="font-semibold text-foreground">{credits}</span>
+              </div>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onBuyCredits}
+            >
+              Koupit kredity
+            </Button>
+            {replayCanvasId && (
+              <Button size="sm" variant="outline" asChild className="ml-auto">
+                <Link href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}>
+                  <Play className="h-3.5 w-3.5" />
+                  Replay
+                </Link>
+              </Button>
+            )}
+          </div>
+        )}
       </header>
 
       <main className="flex-1 min-h-0 overflow-hidden">

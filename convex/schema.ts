@@ -5,6 +5,7 @@ export default defineSchema({
   users: defineTable({
     email: v.string(),
     token: v.string(),
+    magicLinkSentAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_token", ["token"]),
