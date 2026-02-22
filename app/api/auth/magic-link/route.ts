@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   let res: Response;
   try {
-    res = await fetch(`${CONVEX_SITE_URL}/api/auth/magic-link`, {
+    res = await fetch(`${CONVEX_SITE_URL}/http/api/auth/magic-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
