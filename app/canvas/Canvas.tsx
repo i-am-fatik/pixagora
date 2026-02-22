@@ -248,8 +248,6 @@ export function Canvas({
     startY: number;
     startTranslate: { x: number; y: number };
   } | null>(null);
-  const swipeRef = useRef<{ startY: number } | null>(null);
-  const allowSwipeRef = useRef(false);
   const edgeSwipeTriggeredRef = useRef(false);
   const edgeSwipeTimeoutRef = useRef<number | null>(null);
   const lastTapRef = useRef<{ time: number; x: number; y: number }>({
@@ -768,17 +766,24 @@ export function Canvas({
     }
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const rect = container.getBoundingClientRect();
-      const focusX = event.clientX - rect.left;
-      const focusY = event.clientY - rect.top;
       const isTrackpadPinch = event.ctrlKey === true;
-      const zoomSpeed = isTrackpadPinch ? 0.004 : 0.0015;
-      const zoomFactor = Math.exp(-event.deltaY * zoomSpeed);
-      zoomTo(scaleRef.current * zoomFactor, focusX, focusY);
+
+      if (isTrackpadPinch) {
+        const rect = container.getBoundingClientRect();
+        const focusX = event.clientX - rect.left;
+        const focusY = event.clientY - rect.top;
+        const zoomFactor = Math.exp(-event.deltaY * 0.004);
+        zoomTo(scaleRef.current * zoomFactor, focusX, focusY);
+      } else {
+        setTranslateSafe({
+          x: translateRef.current.x - event.deltaX,
+          y: translateRef.current.y - event.deltaY,
+        });
+      }
     };
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
-  }, [zoomTo]);
+  }, [zoomTo, setTranslateSafe]);
 
   const updatePreviewCell = useCallback(
     (clientX: number, clientY: number) => {
@@ -824,23 +829,9 @@ export function Canvas({
       updatePreviewCell(event.clientX, event.clientY);
     }
 
-    const allowSwipe =
-      event.pointerType === "touch" &&
-      scaleRef.current <= 1.001 &&
-      pointers.size === 1;
-    allowSwipeRef.current = allowSwipe;
-
-    if (!allowSwipe) {
-      event.stopPropagation();
-    } else if (onEdgeSwipe) {
-      swipeRef.current = { startY: pointer.y };
-      edgeSwipeTriggeredRef.current = false;
-      setIsInteracting(true);
-    }
+    event.stopPropagation();
 
     if (pointers.size === 2) {
-      allowSwipeRef.current = false;
-      event.stopPropagation();
       const points = Array.from(pointers.values());
       const dx = points[0].x - points[1].x;
       const dy = points[0].y - points[1].y;
@@ -854,15 +845,13 @@ export function Canvas({
       return;
     }
 
-    if (event.pointerType !== "touch" || scaleRef.current > 1.001) {
-      panRef.current = {
-        startX: pointer.x,
-        startY: pointer.y,
-        startTranslate: { ...translateRef.current },
-      };
-      edgeSwipeTriggeredRef.current = false;
-      setIsInteracting(true);
-    }
+    panRef.current = {
+      startX: pointer.x,
+      startY: pointer.y,
+      startTranslate: { ...translateRef.current },
+    };
+    edgeSwipeTriggeredRef.current = false;
+    setIsInteracting(true);
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -943,24 +932,6 @@ export function Canvas({
       return;
     }
 
-    if (
-      allowSwipeRef.current &&
-      swipeRef.current &&
-      onEdgeSwipe &&
-      event.pointerType === "touch"
-    ) {
-      const dy = event.clientY - swipeRef.current.startY;
-      const threshold = Math.max(60, containerSize.height * 0.12);
-      if (!edgeSwipeTriggeredRef.current && Math.abs(dy) >= threshold) {
-        edgeSwipeTriggeredRef.current = true;
-        swipeRef.current = null;
-        allowSwipeRef.current = false;
-        setIsInteracting(false);
-        triggerEdgeSwipe(dy < 0 ? "next" : "prev");
-        return;
-      }
-    }
-
     if (panRef.current) {
       event.stopPropagation();
       const dx = event.clientX - panRef.current.startX;
@@ -1009,8 +980,6 @@ export function Canvas({
       panRef.current = null;
       setIsInteracting(false);
       edgeSwipeTriggeredRef.current = false;
-      swipeRef.current = null;
-      allowSwipeRef.current = false;
     }
 
     if (movePreviewActive && !isCoarsePointer) {
@@ -1027,7 +996,8 @@ export function Canvas({
         event.clientX - origin.x,
         event.clientY - origin.y,
       );
-      if (dist < 4) {
+      const clickThreshold = event.pointerType === "touch" ? 12 : 4;
+      if (dist < clickThreshold) {
         const rect = containerRef.current?.getBoundingClientRect();
         if (rect) {
           const cell = hitTest(
@@ -1057,7 +1027,11 @@ export function Canvas({
       const prev = lastTapRef.current;
       const dist = Math.hypot(prev.x - tapX, prev.y - tapY);
       if (now - prev.time < 300 && dist < 24) {
-        zoomTo(scaleRef.current * ZOOM_STEP, tapX, tapY);
+        if (scaleRef.current > MIN_ZOOM + 0.01) {
+          resetView();
+        } else {
+          zoomTo(scaleRef.current * ZOOM_STEP, tapX, tapY);
+        }
         lastTapRef.current = { time: 0, x: 0, y: 0 };
       } else {
         lastTapRef.current = { time: now, x: tapX, y: tapY };
