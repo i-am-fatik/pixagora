@@ -4,10 +4,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Redo2, Undo2 } from "lucide-react";
+import { Check, Coins, Redo2, Trash2, Undo2 } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
-const LOGO_SQUARES = ["var(--logo-primary)", "#7F7F7F", "#FFD400", "#F7931A"];
 
 type CanvasPageLayoutProps = {
   children: ReactNode;
@@ -32,6 +31,8 @@ type CanvasPageLayoutProps = {
   canRedo: boolean;
   canCommit: boolean;
   isCommitting?: boolean;
+  onClearPending: () => void;
+  canClear: boolean;
   replayCanvasId?: string;
 };
 
@@ -58,6 +59,8 @@ export function CanvasPageLayout({
   canRedo,
   canCommit,
   isCommitting = false,
+  onClearPending,
+  canClear,
   replayCanvasId,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
@@ -181,7 +184,7 @@ export function CanvasPageLayout({
 
       </header>
 
-      <main className="flex-1 min-h-0 overflow-hidden">
+      <main data-tutorial="canvas" className="flex-1 min-h-0 overflow-hidden">
         {Children.toArray(children).map((child, index) => (
           <section
             key={`canvas-section-${index}`}
@@ -196,12 +199,14 @@ export function CanvasPageLayout({
         <>
           <footer className="shrink-0 border-t bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
             <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-2 px-2 text-xs sm:h-16 sm:gap-3 sm:px-4">
-              <ColorPicker
-                colors={colors}
-                selectedColor={selectedColor}
-                onSelectColor={onSelectColor}
-                enforceColors={enforceColors}
-              />
+              <div data-tutorial="color-picker" className="min-w-0 flex-1">
+                <ColorPicker
+                  colors={colors}
+                  selectedColor={selectedColor}
+                  onSelectColor={onSelectColor}
+                  enforceColors={enforceColors}
+                />
+              </div>
 
               <div className="flex items-center gap-1 shrink-0 sm:gap-2">
                 {showInlineBubble && (
@@ -236,9 +241,19 @@ export function CanvasPageLayout({
                 </button>
                 <button
                   type="button"
+                  onClick={onClearPending}
+                  disabled={!canClear}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9"
+                  aria-label="Smazat návrh"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
                   onClick={onCommit}
                   disabled={!canCommit || isCommitting}
                   aria-label="Zakreslit"
+                  data-tutorial="commit"
                   className="inline-flex h-8 items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50 sm:h-9 sm:px-4 sm:text-sm"
                 >
                   <Check className="h-4 w-4 sm:hidden" />

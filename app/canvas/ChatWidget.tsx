@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { ExternalLink, Image, MessageCircle, Send, Settings, Smile, X } from "lucide-react";
+import { ExternalLink, Image as ImageIcon, MessageCircle, Send, Settings, Smile, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -102,18 +102,19 @@ function mapSendError(code?: string) {
 
 export function ChatWidget({ isLoggedIn, token, onRequestAuth }: ChatWidgetProps) {
   const [open, setOpen] = useState(false);
-  const [lastRead, setLastRead] = useState<number | null>(null);
-
-  useEffect(() => {
+  const [lastRead, setLastRead] = useState<number>(() => {
+    if (typeof window === "undefined") {
+      return 0;
+    }
     const now = Date.now();
     const raw = localStorage.getItem(LAST_READ_KEY);
     const parsed = raw ? Number(raw) : now;
     const safe = Number.isFinite(parsed) ? parsed : now;
-    setLastRead(safe);
     if (!raw) {
       localStorage.setItem(LAST_READ_KEY, String(safe));
     }
-  }, []);
+    return safe;
+  });
 
   const unread = useQuery(
     api.chat.getUnreadCount,
@@ -127,29 +128,35 @@ export function ChatWidget({ isLoggedIn, token, onRequestAuth }: ChatWidgetProps
     localStorage.setItem(LAST_READ_KEY, String(ts));
   };
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const now = Date.now();
-    markRead(now);
-  }, [open]);
+  const handleToggle = () => {
+    setOpen((prev) => {
+      if (!prev) {
+        markRead(Date.now());
+      }
+      return !prev;
+    });
+  };
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="fixed bottom-20 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border border-black/10 bg-background/70 shadow-lg backdrop-blur transition hover:bg-background/80 dark:border-white/10"
-        aria-label="Otevřít chat"
-      >
-        <MessageCircle className="h-5 w-5" />
-        {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-primary-foreground">
-            {unreadLabel}
-          </span>
+      <div className="fixed bottom-20 right-4 z-40">
+        {!open && (
+          <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
         )}
-      </button>
+        <button
+          type="button"
+          onClick={handleToggle}
+          className="relative flex h-12 w-12 items-center justify-center rounded-full border border-black/10 bg-background/70 shadow-lg backdrop-blur transition hover:bg-background/80 dark:border-white/10"
+          aria-label="Otevřít chat"
+        >
+          <MessageCircle className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-primary-foreground">
+              {unreadLabel}
+            </span>
+          )}
+        </button>
+      </div>
 
       {open && (
         <ChatPanel
@@ -574,7 +581,7 @@ function ChatPanel({
                         onClick={(e) => togglePreview(message.commitId, e.currentTarget)}
                         className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition hover:text-foreground"
                       >
-                        <Image className="h-3 w-3" />
+                        <ImageIcon className="h-3 w-3" />
                         Náhled
                       </button>
                       {isPreviewOpen && (

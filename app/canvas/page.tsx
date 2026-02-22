@@ -18,6 +18,7 @@ import { PixagoraPopup } from "./PixagoraPopup";
 import { BtcPayPurchase } from "./BtcPayPurchase";
 import { ChatWidget } from "./ChatWidget";
 import { PixelPreview } from "./PixelPreview";
+import { Tutorial } from "./Tutorial";
 import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 
@@ -126,9 +127,19 @@ export default function CanvasPage() {
   );
   const [selectedColor, setSelectedColorRaw] = useState("#000000");
   const [btcPayPurchaseOpen, setBtcPayPurchaseOpen] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState<1 | 2 | 3 | null>(null);
+  const step2BaselinePendingRef = useRef<number>(0);
+  const pendingCountRef = useRef<number>(0);
   const setSelectedColor = useCallback((color: string) => {
     setSelectedColorRaw(color);
     localStorage.setItem("pixagora-color", color);
+    setTutorialStep((prev) => {
+      if (prev === 1) {
+        step2BaselinePendingRef.current = pendingCountRef.current;
+        return 2;
+      }
+      return prev;
+    });
   }, []);
 
   useEffect(() => {
@@ -139,6 +150,7 @@ export default function CanvasPage() {
   }, []);
   const [isCommitting, setIsCommitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [initialCost, setInitialCost] = useState(0);
   const [initialPendingCount, setInitialPendingCount] = useState(0);
   const [pendingState, dispatch] = useReducer(
@@ -232,9 +244,10 @@ export default function CanvasPage() {
       colors.length > 0 &&
       !colors.includes(selectedColorRef.current)
     ) {
-      setSelectedColor(colors[0]);
+      setSelectedColorRaw(colors[0]);
+      localStorage.setItem("pixagora-color", colors[0]);
     }
-  }, [colors, enforceColors, setSelectedColor]);
+  }, [colors, enforceColors]);
 
   const applyLogin = useCallback((nextToken: string) => {
     const trimmed = nextToken.trim();
@@ -286,6 +299,37 @@ export default function CanvasPage() {
   const isLoadingUser = loggedIn && user === undefined;
 
   useEffect(() => {
+    if (canvases !== undefined && !localStorage.getItem("pixagora-tutorial-done")) {
+      setTutorialStep(1);
+    }
+  }, [canvases]);
+
+  const handleTutorialPrev = useCallback(() => {
+    setTutorialStep((prev) => {
+      if (prev === 3) {
+        step2BaselinePendingRef.current = pendingCountRef.current;
+        return 2;
+      }
+      return prev === 2 ? 1 : prev;
+    });
+  }, []);
+
+  const handleTutorialNext = useCallback(() => {
+    setTutorialStep((prev) => {
+      if (prev === 1) {
+        step2BaselinePendingRef.current = pendingCountRef.current;
+        return 2;
+      }
+      return prev === 2 ? 3 : prev;
+    });
+  }, []);
+
+  const handleTutorialSkip = useCallback(() => {
+    setTutorialStep(null);
+    localStorage.setItem("pixagora-tutorial-done", "1");
+  }, []);
+
+  useEffect(() => {
     if (showInvalidToken) {
       localStorage.removeItem("pixagora-token");
       setToken("");
@@ -306,6 +350,13 @@ export default function CanvasPage() {
     setConfirmOpen(false);
     setPopupMode("buy-credits");
     setPopupOpen(true);
+  };
+
+  const handleOpenClearConfirm = () => setClearConfirmOpen(true);
+  const handleCancelClear = () => setClearConfirmOpen(false);
+  const handleConfirmClear = () => {
+    dispatch({ type: "reset" });
+    setClearConfirmOpen(false);
   };
 
   const serverPixelMap = useMemo(() => {
@@ -357,6 +408,14 @@ export default function CanvasPage() {
   }, [pendingState.pending, serverPixelMap]);
 
   const pendingCount = Object.keys(effectivePending).length;
+  pendingCountRef.current = pendingCount;
+
+  useEffect(() => {
+    if (tutorialStep === 2 && pendingCount > step2BaselinePendingRef.current) {
+      setTutorialStep(3);
+    }
+  }, [tutorialStep, pendingCount]);
+
   const totalCost = useMemo(() => {
     let cost = 0;
     for (const key of Object.keys(effectivePending)) {
@@ -385,6 +444,10 @@ export default function CanvasPage() {
     if (!isAuthenticated) {
       handleOpenAnonymousPopup();
       return;
+    }
+    if (tutorialStep === 3) {
+      setTutorialStep(null);
+      localStorage.setItem("pixagora-tutorial-done", "1");
     }
     setPopupOpen(false);
     setInitialCost(totalCost);
@@ -514,6 +577,8 @@ export default function CanvasPage() {
         canRedo={pendingState.redo.length > 0}
         canCommit={pendingCount > 0 && !!canvasId}
         isCommitting={isCommitting}
+        onClearPending={handleOpenClearConfirm}
+        canClear={pendingState.history.length > 0}
         showFooter={true}
         onHowItWorks={() => setHowItWorksOpen(true)}
         replayCanvasId={canvasId}
@@ -568,6 +633,15 @@ export default function CanvasPage() {
           />
         )}
       </CanvasPageLayout>
+
+      {tutorialStep !== null && (
+        <Tutorial
+          step={tutorialStep}
+          onPrev={handleTutorialPrev}
+          onNext={handleTutorialNext}
+          onSkip={handleTutorialSkip}
+        />
+      )}
 
       <HowItWorksModal
         open={howItWorksOpen}
@@ -655,6 +729,35 @@ export default function CanvasPage() {
                 </Button>
               )}
               <Button variant="secondary" onClick={handleCancelConfirm}>
+                Zrušit
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clearConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-xs space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
+          >
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold">Smazat návrh</h2>
+              <p className="text-sm text-muted-foreground">
+                Opravdu chceš smazat všechny navržené pixely?
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="destructive"
+                onClick={handleConfirmClear}
+                className="flex-1"
+              >
+                Smazat
+              </Button>
+              <Button variant="secondary" onClick={handleCancelClear}>
                 Zrušit
               </Button>
             </div>

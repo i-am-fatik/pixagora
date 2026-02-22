@@ -12,7 +12,7 @@ declare global {
     btcpay?: {
       showInvoice: (invoiceId: string) => void;
       onModalWillLeave: () => void;
-      onModalReceiveMessage: (event: any) => void;
+      onModalReceiveMessage: (handler: (event: MessageEvent) => void) => void;
       hideFrame: () => void;
     };
   }
@@ -45,7 +45,7 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
     }
   }, [open]);
 
-  const handleBtcPayEvent = (event: any) => {
+  const handleBtcPayEvent = (event: MessageEvent) => {
     console.log("BTCPay event:", event.data);
     if (event.data === "loaded") {
       setShowOverlay(true);
@@ -57,7 +57,9 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!email || isCreating) return;
+    if (!email || isCreating) {
+      return;
+    }
 
     setIsCreating(true);
     try {
@@ -77,13 +79,15 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
       } else {
         throw new Error("Failed to open BTCPay invoice");
       }
-    } catch (error: any) {
-      alert(error?.message || "Failed to create invoice");
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "Failed to create invoice");
       setIsCreating(false);
     }
   };
 
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   if (showOverlay) {
     return (
@@ -97,13 +101,17 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
     );
   }
 
-  if (invoiceOpen) return null;
+  if (invoiceOpen) {
+    return null;
+  }
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
       }}
     >
       <div
