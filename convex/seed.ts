@@ -28,10 +28,10 @@ export const clearAll = internalMutation({
 
 export const createCanvas = internalMutation({
   args: {
-    name: v.string(),
-    width: v.number(),
-    height: v.number(),
-    pixelPrice: v.number(),
+    name: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    pixelPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("canvases").collect();
