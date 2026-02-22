@@ -88,28 +88,25 @@ export function CanvasPageLayout({
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            {/* Desktop: credits + buy + replay inline */}
-            {isLoggedIn && typeof credits === "number" && (
-              <div className="hidden items-baseline gap-1 text-sm font-medium text-muted-foreground sm:flex">
-                <span>Kredity</span>
-                <span className="text-lg font-semibold text-foreground">
-                  {credits}
-                </span>
-              </div>
-            )}
             {replayCanvasId && (
               <Button size="sm" variant="outline" asChild className="hidden sm:inline-flex">
                 <Link href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}>
                   <Play className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Replay</span>
+                  Replay
                 </Link>
               </Button>
             )}
             {isLoggedIn ? (
               <>
+                {typeof credits === "number" && (
+                  <div className="hidden items-center gap-1 text-sm font-medium text-muted-foreground sm:flex">
+                    <Coins className="h-3.5 w-3.5" />
+                    <span className="font-semibold text-foreground">{credits}</span>
+                  </div>
+                )}
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant="outline"
                   onClick={onBuyCredits}
                   className="hidden sm:inline-flex"
                 >
