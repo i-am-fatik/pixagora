@@ -260,32 +260,38 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
         type="button"
         onClick={handleLabelClick}
         disabled={!hasMultiple}
-        className="absolute left-4 top-4 z-10 rounded-full border bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition hover:text-foreground disabled:opacity-60"
+        className="absolute left-4 top-4 z-10 rounded-full border border-black/10 bg-background/60 px-3 py-2 text-[11px] font-medium text-foreground shadow-sm transition hover:text-foreground disabled:cursor-not-allowed dark:border-white/10 dark:text-white dark:hover:text-white"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onPointerMove={(event) => event.stopPropagation()}
+        onPointerCancel={(event) => event.stopPropagation()}
         aria-label="Přepnout plátno"
       >
         {reelLabel}
       </button>
 
-      <div className="absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-2 md:flex">
-        <button
-          type="button"
-          aria-label="Předchozí plátno"
-          onClick={() => goToIndex(activeIndex - 1)}
-          disabled={activeIndex === 0}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
-        >
-          <ChevronUp className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Další plátno"
-          onClick={() => goToIndex(activeIndex + 1)}
-          disabled={activeIndex >= count - 1}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
-        >
-          <ChevronDown className="h-4 w-4" />
-        </button>
-      </div>
+      {hasMultiple && (
+        <div className="absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-2 md:flex">
+          <button
+            type="button"
+            aria-label="Předchozí plátno"
+            onClick={() => goToIndex(activeIndex - 1)}
+            disabled={activeIndex === 0}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Další plátno"
+            onClick={() => goToIndex(activeIndex + 1)}
+            disabled={activeIndex >= count - 1}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {hintTimerDone && hasMultiple && activeIndex === 0 && !hintDismissed && (
         <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full bg-background/65 px-3 py-2 text-[11px] font-medium text-muted-foreground shadow-sm md:hidden">

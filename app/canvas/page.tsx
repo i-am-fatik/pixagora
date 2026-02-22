@@ -485,7 +485,7 @@ export default function CanvasPage() {
             enableTouchSwipe={false}
             onIndexChange={handleReelIndexChange}
             renderItem={(index) => (
-              <div className="flex h-full w-full items-center justify-center p-6 box-border overflow-hidden">
+              <div className="flex h-full w-full items-center justify-center overflow-hidden">
                 {isLoadingUser ? (
                   <div className="text-sm text-muted-foreground">
                     Načítám uživatele…

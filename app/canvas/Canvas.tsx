@@ -195,8 +195,21 @@ export function Canvas({
   const needsDrawRef = useRef(false);
 
   const MIN_ZOOM = 1;
-  const MAX_ZOOM = 8;
+  const MAX_ZOOM = 12;
   const ZOOM_STEP = 1.5;
+  const [fitScale, setFitScale] = useState(0.9);
+
+  useEffect(() => {
+    const media = window.matchMedia("(pointer: coarse), (max-width: 768px)");
+    const update = () => setFitScale(media.matches ? 1 : 0.9);
+    update();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -235,8 +248,10 @@ export function Canvas({
     const totalGapY = CELL_GAP * Math.max(0, height - 1);
     const availableWidth = Math.max(0, containerSize.width - totalGapX);
     const availableHeight = Math.max(0, containerSize.height - totalGapY);
-    return Math.min(availableWidth / width, availableHeight / height);
-  }, [containerSize, height, width]);
+    return (
+      Math.min(availableWidth / width, availableHeight / height) * fitScale
+    );
+  }, [containerSize, fitScale, height, width]);
 
   const baseSize = useMemo(
     () => ({
@@ -462,7 +477,17 @@ export function Canvas({
 
   useEffect(() => {
     scheduleRedraw();
-  }, [pixelMap, width, height, baseCellSize, selectedColor, translate, scale, highlightedPixels, scheduleRedraw]);
+  }, [
+    pixelMap,
+    width,
+    height,
+    baseCellSize,
+    selectedColor,
+    translate,
+    scale,
+    highlightedPixels,
+    scheduleRedraw,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -686,11 +711,7 @@ export function Canvas({
     }
 
     const origin = clickOriginRef.current;
-    if (
-      origin &&
-      !edgeSwipeTriggeredRef.current &&
-      !pinchRef.current
-    ) {
+    if (origin && !edgeSwipeTriggeredRef.current && !pinchRef.current) {
       const dist = Math.hypot(
         event.clientX - origin.x,
         event.clientY - origin.y,
@@ -758,8 +779,14 @@ export function Canvas({
       onMouseLeave={handleMouseLeave}
       className={`relative h-full w-full overflow-hidden select-none touch-none ${isInteracting ? "cursor-grabbing" : "cursor-grab"} ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full border bg-background/90 px-2 py-1 text-muted-foreground shadow-sm">
-        <span className="rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
+      <div
+        className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-full border border-black/10 bg-background/60 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-white/10"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onPointerMove={(event) => event.stopPropagation()}
+        onPointerCancel={(event) => event.stopPropagation()}
+      >
+        <span className="rounded-full  text-[11px] font-medium text-foreground">
           {Number.isFinite(scale)
             ? `${Math.abs(scale - 1) < 0.01 ? "1" : scale.toFixed(scale < 2 ? 2 : 1)}x`
             : "1x"}
@@ -768,7 +795,7 @@ export function Canvas({
           type="button"
           aria-label="Oddálit"
           onClick={() => zoomBy(-1)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
@@ -776,7 +803,7 @@ export function Canvas({
           type="button"
           aria-label="Resetovat zoom"
           onClick={resetView}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -784,7 +811,7 @@ export function Canvas({
           type="button"
           aria-label="Přiblížit"
           onClick={() => zoomBy(1)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
