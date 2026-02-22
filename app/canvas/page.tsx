@@ -13,6 +13,7 @@ import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
 import { CanvasReels, type CanvasReelsHandle } from "./CanvasReels";
+import { HowItWorksModal } from "./HowItWorksModal";
 import { PixagoraPopup } from "./PixagoraPopup";
 import { BtcPayPurchase } from "./BtcPayPurchase";
 import { ChatWidget } from "./ChatWidget";
@@ -118,6 +119,7 @@ export default function CanvasPage() {
   const [token, setToken] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [popupMode, setPopupMode] = useState<"anonymous" | "buy-credits">(
     "anonymous",
   );
@@ -505,6 +507,7 @@ export default function CanvasPage() {
         canCommit={pendingCount > 0 && !!canvasId}
         isCommitting={isCommitting}
         showFooter={true}
+        onHowItWorks={() => setHowItWorksOpen(true)}
         replayCanvasId={canvasId}
       >
         {totalCanvases === 0 ? (
@@ -557,6 +560,11 @@ export default function CanvasPage() {
           />
         )}
       </CanvasPageLayout>
+
+      <HowItWorksModal
+        open={howItWorksOpen}
+        onClose={() => setHowItWorksOpen(false)}
+      />
 
       <ChatWidget
         isLoggedIn={isAuthenticated}
