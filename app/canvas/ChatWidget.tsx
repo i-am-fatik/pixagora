@@ -6,6 +6,7 @@ import { ExternalLink, Image, MessageCircle, Send, Settings, Smile, X } from "lu
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { PixelPreview } from "./PixelPreview";
 import { StartovacLogo } from "./StartovacLogo";
 
 type ChatWidgetProps = {
@@ -65,9 +66,6 @@ function formatCzk(amount: number | undefined) {
   return `${rounded} Kč`;
 }
 
-const MAX_PREVIEW_SIZE = 140;
-
-
 function formatTime(ts: number) {
   try {
     const now = Date.now();
@@ -90,7 +88,7 @@ function formatTime(ts: number) {
 function mapSendError(code?: string) {
   switch (code) {
     case "RATE_LIMIT":
-      return "Zpomal — zkus to za chvíli.";
+      return "Zpomal. Nádech. Výdech. A zkus to znovu.";
     case "TOO_LONG":
       return "Zpráva je moc dlouhá.";
     case "EMPTY":
@@ -217,34 +215,12 @@ function ChatPanel({
   const [previewCommitId, setPreviewCommitId] = useState<Id<"transactions"> | null>(
     null,
   );
+  const [previewAbove, setPreviewAbove] = useState(true);
 
   const previewData = useQuery(
     api.transactions.getPreview,
     previewCommitId ? { commitId: previewCommitId } : "skip",
   );
-
-  const previewGrid = useMemo(() => {
-    if (!previewData?.changes?.length) {
-      return null;
-    }
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const change of previewData.changes) {
-      minX = Math.min(minX, change.x);
-      minY = Math.min(minY, change.y);
-      maxX = Math.max(maxX, change.x);
-      maxY = Math.max(maxY, change.y);
-    }
-    const width = maxX - minX + 1 + 2;
-    const height = maxY - minY + 1 + 2;
-    const cell = Math.max(
-      1,
-      Math.floor(MAX_PREVIEW_SIZE / Math.max(width, height)),
-    );
-    return { minX, minY, width, height, cell };
-  }, [previewData]);
 
   useEffect(() => {
     if (!settingsOpen || !profile) {
@@ -425,11 +401,23 @@ function ChatPanel({
     setEmojiOpen((prev) => !prev);
   };
 
-  const togglePreview = (commitId?: Id<"transactions">) => {
+  const togglePreview = (commitId?: Id<"transactions">, buttonEl?: HTMLElement) => {
     if (!commitId) {
       return;
     }
-    setPreviewCommitId((prev) => (prev === commitId ? null : commitId));
+    if (previewCommitId === commitId) {
+      setPreviewCommitId(null);
+      return;
+    }
+    if (buttonEl && scrollRef.current) {
+      const scrollRect = scrollRef.current.getBoundingClientRect();
+      const buttonRect = buttonEl.getBoundingClientRect();
+      const spaceAbove = buttonRect.top - scrollRect.top;
+      setPreviewAbove(spaceAbove >= 180);
+    } else {
+      setPreviewAbove(true);
+    }
+    setPreviewCommitId(commitId);
   };
 
   const insertEmoji = (emoji: string) => {
@@ -544,6 +532,8 @@ function ChatPanel({
             <div
               key={message._id}
               className={`relative flex items-start gap-2 rounded-lg px-2 py-1 -mx-2 transition-colors ${
+                isPreviewOpen ? "z-30" : ""
+              } ${
                 isCommit
                   ? "border border-black/5 bg-black/5 backdrop-blur-sm dark:border-white/10 dark:bg-white/8"
                   : isReward
@@ -581,50 +571,24 @@ function ChatPanel({
                     <div className="relative inline-flex items-center gap-2" data-commit-preview>
                       <button
                         type="button"
-                        onClick={() => togglePreview(message.commitId)}
+                        onClick={(e) => togglePreview(message.commitId, e.currentTarget)}
                         className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition hover:text-foreground"
                       >
                         <Image className="h-3 w-3" />
                         Náhled
                       </button>
                       {isPreviewOpen && (
-                        <div className="absolute bottom-full right-0 z-30 mb-1 rounded-2xl border border-black/10 bg-card/95 p-3 shadow-xl backdrop-blur dark:border-white/10">
+                        <div className={`absolute right-0 z-30 rounded-2xl border border-black/10 bg-card/95 p-3 shadow-xl backdrop-blur dark:border-white/10 ${previewAbove ? "bottom-full mb-1" : "top-full mt-1"}`}>
                           {previewData === null ? (
                             <div className="text-xs text-muted-foreground">
                               Náhled není dostupný.
                             </div>
-                          ) : !previewGrid ? (
+                          ) : !previewData?.changes?.length ? (
                             <div className="text-xs text-muted-foreground">
                               Načítám náhled…
                             </div>
                           ) : (
-                            <div
-                              className="relative overflow-hidden rounded-lg bg-muted/30"
-                              style={{
-                                width: previewGrid.width * previewGrid.cell,
-                                height: previewGrid.height * previewGrid.cell,
-                              }}
-                            >
-                              {previewData?.changes.map((change) => {
-                                const left =
-                                  (change.x - previewGrid.minX + 1) * previewGrid.cell;
-                                const top =
-                                  (change.y - previewGrid.minY + 1) * previewGrid.cell;
-                                return (
-                                  <span
-                                    key={`${change.x}-${change.y}-${change.color}`}
-                                    className="absolute"
-                                    style={{
-                                      left,
-                                      top,
-                                      width: previewGrid.cell,
-                                      height: previewGrid.cell,
-                                      backgroundColor: change.color,
-                                    }}
-                                  />
-                                );
-                              })}
-                            </div>
+                            <PixelPreview pixels={previewData.changes} />
                           )}
                         </div>
                       )}

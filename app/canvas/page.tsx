@@ -17,6 +17,7 @@ import { HowItWorksModal } from "./HowItWorksModal";
 import { PixagoraPopup } from "./PixagoraPopup";
 import { BtcPayPurchase } from "./BtcPayPurchase";
 import { ChatWidget } from "./ChatWidget";
+import { PixelPreview } from "./PixelPreview";
 import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 
@@ -365,6 +366,13 @@ export default function CanvasPage() {
     return cost;
   }, [effectivePending, serverPixelMap, pixelPrice]);
 
+  const confirmPreviewPixels = useMemo(() => {
+    return Object.entries(effectivePending).map(([key, color]) => {
+      const [x, y] = key.split(",").map(Number);
+      return { x, y, color };
+    });
+  }, [effectivePending]);
+
   const priceChanged = confirmOpen && totalCost !== initialCost;
   const pixelsStolen = confirmOpen && pendingCount < initialPendingCount;
 
@@ -589,6 +597,11 @@ export default function CanvasPage() {
             aria-modal="true"
             className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
           >
+            {confirmPreviewPixels.length > 0 && (
+              <div className="flex justify-center">
+                <PixelPreview pixels={confirmPreviewPixels} maxSize={160} />
+              </div>
+            )}
             <div className="space-y-1">
               <h2 className="text-xl font-semibold">Potvrdit nákup</h2>
               <p className="text-sm text-muted-foreground">
