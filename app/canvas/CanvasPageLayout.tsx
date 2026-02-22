@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Children, ReactNode } from "react";
+import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Play, Redo2, Undo2 } from "lucide-react";
+import { Check, Coins, Redo2, Undo2 } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
 const LOGO_SQUARES = ["var(--logo-primary)", "#7F7F7F", "#FFD400", "#F7931A"];
@@ -17,7 +17,7 @@ type CanvasPageLayoutProps = {
   onBuyCredits: () => void;
   signInDisabled?: boolean;
   showFooter?: boolean;
-  faqHref?: string;
+  onHowItWorks: () => void;
   colors: string[];
   selectedColor: string;
   onSelectColor: (color: string) => void;
@@ -43,7 +43,7 @@ export function CanvasPageLayout({
   onBuyCredits,
   signInDisabled = false,
   showFooter = true,
-  faqHref = "/faq",
+  onHowItWorks,
   colors,
   selectedColor,
   onSelectColor,
@@ -78,24 +78,25 @@ export function CanvasPageLayout({
             <span className="text-base font-semibold tracking-tight">Pixagora</span>
           </div>
 
-          <div className="flex flex-1 items-center justify-center">
-            <Link
-              href={faqHref}
-              className="hidden text-sm font-medium text-muted-foreground transition hover:text-foreground md:inline-flex"
+          <div className="hidden flex-1 items-center justify-center gap-4 md:flex">
+            <button
+              type="button"
+              onClick={onHowItWorks}
+              className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
             >
-              FAQ
-            </Link>
+              Jak to funguje?
+            </button>
+            {replayCanvasId && (
+              <Link
+                href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}
+                className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
+              >
+                Replay
+              </Link>
+            )}
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            {replayCanvasId && (
-              <Button size="sm" variant="outline" asChild className="hidden sm:inline-flex">
-                <Link href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}>
-                  <Play className="h-3.5 w-3.5" />
-                  Replay
-                </Link>
-              </Button>
-            )}
             {isLoggedIn ? (
               <>
                 {typeof credits === "number" && (
@@ -110,7 +111,7 @@ export function CanvasPageLayout({
                   onClick={onBuyCredits}
                   className="hidden sm:inline-flex"
                 >
-                  Koupit kredity
+                  Dobít kredity
                 </Button>
                 <Button
                   size="sm"
@@ -133,32 +134,44 @@ export function CanvasPageLayout({
           </div>
         </div>
 
-        {/* Mobile second row: credits + actions */}
-        {isLoggedIn && (
-          <div className="mx-auto flex w-full max-w-6xl items-center gap-2 border-t px-4 py-1.5 sm:hidden">
-            {typeof credits === "number" && (
-              <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
-                <Coins className="h-3.5 w-3.5" />
-                <span className="font-semibold text-foreground">{credits}</span>
-              </div>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onBuyCredits}
+        {/* Mobile: nav + credits bar */}
+        <div className="mx-auto flex w-full max-w-6xl items-center border-t px-4 py-1.5 md:hidden">
+          <div className="flex flex-1 items-center justify-center gap-4">
+            <button
+              type="button"
+              onClick={onHowItWorks}
+              className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
             >
-              Koupit kredity
-            </Button>
+              Jak to funguje?
+            </button>
             {replayCanvasId && (
-              <Button size="sm" variant="outline" asChild className="ml-auto">
-                <Link href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}>
-                  <Play className="h-3.5 w-3.5" />
-                  Replay
-                </Link>
-              </Button>
+              <Link
+                href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}
+                className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
+              >
+                Replay
+              </Link>
             )}
           </div>
-        )}
+          {isLoggedIn && (
+            <div className="flex shrink-0 items-center gap-2">
+              {typeof credits === "number" && (
+                <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+                  <Coins className="h-3.5 w-3.5" />
+                  <span className="font-semibold text-foreground">{credits}</span>
+                </div>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onBuyCredits}
+              >
+                Dobít kredity
+              </Button>
+            </div>
+          )}
+        </div>
+
       </header>
 
       <main className="flex-1 min-h-0 overflow-hidden">

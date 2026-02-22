@@ -292,19 +292,19 @@ http.route({
       return jsonResponse({ ok: false, error: "Neplatná emailová adresa" }, 400);
     }
 
+    const user = await ctx.runMutation(
+      internal.credits.findUserForLogin,
+      { email },
+    );
+    if (!user.found) {
+      return jsonResponse({ ok: false, error: "USER_NOT_FOUND" }, 404);
+    }
+
     // DEV fallback: when Resend config is missing, return login link directly
     if (!canSendEmail()) {
-      const user = await ctx.runMutation(
-        internal.credits.findOrCreateUserMutation,
-        { email },
-      );
       return jsonResponse({ ok: true, devLoginUrl: buildDevLoginUrl(user.token) });
     }
 
-    const user = await ctx.runMutation(
-      internal.credits.findOrCreateUserMutation,
-      { email },
-    );
     if (user.rateLimited) {
       return jsonResponse({ ok: true });
     }

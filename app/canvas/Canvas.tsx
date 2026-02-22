@@ -125,21 +125,29 @@ function drawGrid(
     ctx.globalAlpha = 1;
     const borderWidth = Math.max(2 / scale, 1);
     const inset = borderWidth / 2;
+    const pulseAlpha = 0.15 + 0.15 * Math.sin((Date.now() / 750) * Math.PI);
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const key = `${x},${y}`;
         if (!highlightedPixels.has(key)) {
           continue;
         }
-        const px = x * step + inset;
-        const py = y * step + inset;
+        const px = x * step;
+        const py = y * step;
+        const bx = px + inset;
+        const by = py + inset;
         const size = cellSize - borderWidth;
+        ctx.globalAlpha = 1;
         ctx.lineWidth = borderWidth;
         ctx.strokeStyle = "#000000";
-        ctx.strokeRect(px, py, size, size);
+        ctx.strokeRect(bx, by, size, size);
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = borderWidth * 0.6;
-        ctx.strokeRect(px, py, size, size);
+        ctx.strokeRect(bx, by, size, size);
+
+        ctx.globalAlpha = pulseAlpha;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(px, py, cellSize, cellSize);
       }
     }
   }
@@ -539,6 +547,19 @@ export function Canvas({
     highlightedPixels,
     scheduleRedraw,
   ]);
+
+  useEffect(() => {
+    if (!highlightedPixels || highlightedPixels.size === 0) {
+      return;
+    }
+    let animId = 0;
+    const loop = () => {
+      scheduleRedraw();
+      animId = requestAnimationFrame(loop);
+    };
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [highlightedPixels, scheduleRedraw]);
 
   useEffect(() => {
     return () => {
