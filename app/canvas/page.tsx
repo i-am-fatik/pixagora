@@ -572,6 +572,10 @@ export default function CanvasPage() {
       <HowItWorksModal
         open={howItWorksOpen}
         onClose={() => setHowItWorksOpen(false)}
+        onOpenBtcPay={() => {
+          setHowItWorksOpen(false);
+          setBtcPayPurchaseOpen(true);
+        }}
       />
 
       <ChatWidget

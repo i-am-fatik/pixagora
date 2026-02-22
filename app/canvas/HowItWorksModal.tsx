@@ -5,9 +5,14 @@ import { X } from "lucide-react";
 type HowItWorksModalProps = {
   open: boolean;
   onClose: () => void;
+  onOpenBtcPay: () => void;
 };
 
-export function HowItWorksModal({ open, onClose }: HowItWorksModalProps) {
+export function HowItWorksModal({
+  open,
+  onClose,
+  onOpenBtcPay,
+}: HowItWorksModalProps) {
   if (!open) {
     return null;
   }
@@ -43,8 +48,23 @@ export function HowItWorksModal({ open, onClose }: HowItWorksModalProps) {
           </p>
           <p>
             Kredity získáš podpořením projektu na{" "}
-            <strong className="text-foreground">Startovači</strong> nebo přes{" "}
-            <strong className="text-foreground">Bitcoin</strong>.
+            <a
+              href="https://www.startovac.cz/projects/anarchoagorismus"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-foreground hover:underline"
+            >
+              Startovači
+            </a>{" "}
+            nebo přes{" "}
+            <button
+              type="button"
+              onClick={onOpenBtcPay}
+              className="font-bold text-foreground hover:underline"
+            >
+              Bitcoin
+            </button>
+            .
           </p>
           <p>
             Základní cena pixelu je{" "}
@@ -54,6 +74,27 @@ export function HowItWorksModal({ open, onClose }: HowItWorksModalProps) {
             Přemalování cizího pixelu stojí{" "}
             <strong className="text-foreground">2× tolik</strong>, co zaplatil
             předchozí autor.
+          </p>
+          <p>
+            Více informací o kampani získáš na{" "}
+            <a
+              href="https://kniha.urza.cz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-foreground hover:underline"
+            >
+              kniha.urza.cz
+            </a>{" "}
+            a na{" "}
+            <a
+              href="https://www.startovac.cz/projects/anarchoagorismus"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-foreground hover:underline"
+            >
+              Startovači
+            </a>
+            .
           </p>
         </div>
       </div>

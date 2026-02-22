@@ -5,7 +5,7 @@ import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 declare global {
   interface Window {
@@ -26,6 +26,8 @@ type BtcPayPurchaseProps = {
 export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
   const [email, setEmail] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const createInvoice = useAction(api.btcpay.createInvoice);
   const modalRef = useRef<HTMLDivElement | null>(null);
 
@@ -46,10 +48,10 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
   const handleBtcPayEvent = (event: any) => {
     console.log("BTCPay event:", event.data);
     if (event.data === "loaded") {
-      // TODO: show help text
-    }
-    else if (event.data.status === "Settled") {
-      setTimeout(() => window.btcpay!.hideFrame(), 1000)
+      setShowOverlay(true);
+    } else if (event.data.status === "Settled") {
+      setShowOverlay(false);
+      setTimeout(() => window.btcpay!.hideFrame(), 1000);
     }
   };
 
@@ -64,9 +66,12 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
         redirectUrl: window.location.href,
       });
       if (window.btcpay) {
+        setInvoiceOpen(true);
         window.btcpay.showInvoice(invoiceId);
         window.btcpay.onModalReceiveMessage(handleBtcPayEvent);
-        onClose();
+        window.btcpay.onModalWillLeave = () => {
+          onClose();
+        };
       } else if (checkoutLink) {
         window.location.href = checkoutLink;
       } else {
@@ -74,26 +79,54 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
       }
     } catch (error: any) {
       alert(error?.message || "Failed to create invoice");
-    } finally {
       setIsCreating(false);
     }
   };
 
   if (!open) return null;
 
+  if (showOverlay) {
+    return (
+      <div className="fixed inset-0 z-[3000] flex pt-6 items-start justify-center pointer-events-none">
+        <div className="bg-white text-black text-center text-sm shadow-lg px-6 py-4 rounded-xl font-medium pointer-events-auto max-w-md">
+          <h2 className="text-xl">Přispěj kolik chceš</h2>
+          <p className="pt-2">Cena za 1 ktedit je 10 Kč</p>
+          <p className="pt-2">Pokud pošleš více než 1000 Kč, tak můžeš překreslovat už použité pixely.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (invoiceOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
       >
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold">Zadej e-mail</h2>
-          <p className="text-sm text-muted-foreground">
-            Pro možnost se později přihlásit
-          </p>
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold">Zadej e-mail</h2>
+            <p className="text-sm text-muted-foreground">
+              Pro možnost se později přihlásit
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 text-muted-foreground transition hover:text-foreground"
+            aria-label="Zavřít"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
@@ -101,6 +134,7 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email..."
+            autoComplete="email"
             required
             autoFocus
           />
@@ -114,9 +148,6 @@ export function BtcPayPurchase({ open, onClose }: BtcPayPurchaseProps) {
               ) : (
                 "Pokračovat k platbě"
               )}
-            </Button>
-            <Button variant="secondary" onClick={onClose} disabled={isCreating}>
-              Zavřít
             </Button>
           </div>
         </form>
