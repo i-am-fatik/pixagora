@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   title: "Pixagora",
   description: "Realtime pixel canvas",
   icons: {
-    icon: "/convex.svg",
+    icon: "/icon.svg",
   },
 };
 

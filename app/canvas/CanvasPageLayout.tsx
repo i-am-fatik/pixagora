@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Check, Coins, Redo2, Undo2 } from "lucide-react";
@@ -66,16 +67,22 @@ export function CanvasPageLayout({
       <header className="shrink-0 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 py-3">
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              {LOGO_SQUARES.map((color) => (
-                <span
-                  key={color}
-                  className="h-3 w-3 rounded-sm"
-                  style={{ backgroundColor: color }}
-                />
-              ))}
-            </div>
-            <span className="text-base font-semibold tracking-tight">Pixagora</span>
+            <Image
+              src="/logo-white.svg"
+              alt="Pixagora"
+              width={100}
+              height={24}
+              className="h-10 w-auto dark:hidden"
+              priority
+            />
+            <Image
+              src="/logo-dark.svg"
+              alt="Pixagora"
+              width={100}
+              height={24}
+              className="h-10 w-auto hidden dark:block"
+              priority
+            />
           </div>
 
           <div className="hidden flex-1 items-center justify-center gap-4 md:flex">
