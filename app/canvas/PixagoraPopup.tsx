@@ -86,7 +86,7 @@ export function PixagoraPopup({ open, onClose, mode, onOpenBtcPay }: PixagoraPop
           <>
             <div className="flex items-start justify-between">
               <h2 className="text-xl font-semibold">
-                {mode === "anonymous" ? "Začni kreslit" : "Koupit kredity"}
+                {mode === "anonymous" ? "Začni kreslit" : "Potřebuješ kredity"}
               </h2>
               <button
                 type="button"

@@ -111,7 +111,7 @@ export function CanvasPageLayout({
                   onClick={onBuyCredits}
                   className="hidden sm:inline-flex"
                 >
-                  Koupit kredity
+                  Dobít kredity
                 </Button>
                 <Button
                   size="sm"
@@ -166,7 +166,7 @@ export function CanvasPageLayout({
                 variant="outline"
                 onClick={onBuyCredits}
               >
-                Koupit kredity
+                Dobít kredity
               </Button>
             </div>
           )}
