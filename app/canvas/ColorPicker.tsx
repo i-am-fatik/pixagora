@@ -52,7 +52,7 @@ export function ColorPicker({
   };
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       <div
         className="color-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden py-1 pl-2 pr-2 scroll-smooth snap-x snap-mandatory scroll-pl-2 sm:flex-[0_1_auto] sm:gap-2 sm:max-w-[45vw] sm:overflow-x-auto sm:snap-x sm:snap-mandatory md:max-w-[50vw] lg:max-w-[40vw] xl:max-w-[45vw] 2xl:max-w-[50vw]"
       >

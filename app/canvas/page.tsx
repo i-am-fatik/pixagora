@@ -197,6 +197,7 @@ export default function CanvasPage() {
     Record<string, number | null>
   >({});
   const [moveHintDismissed, setMoveHintDismissed] = useState(false);
+  const [isFreeModePainting, setIsFreeModePainting] = useState(false);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
     initialPendingState,
@@ -631,7 +632,9 @@ export default function CanvasPage() {
     ).toLowerCase();
 
     if (selectedColor.toLowerCase() === visibleColor) {
-      dispatch({ type: "apply", key, nextPending: undefined });
+      if (!isFreeModePainting) {
+        dispatch({ type: "apply", key, nextPending: undefined });
+      }
     } else {
       const nextPending =
         selectedColor.toLowerCase() === (serverColor ?? "#ffffff").toLowerCase()
@@ -769,6 +772,8 @@ export default function CanvasPage() {
         showFooter={true}
         onHowItWorks={() => setHowItWorksOpen(true)}
         replayCanvasId={canvasId}
+        isFreeModePainting={isFreeModePainting}
+        onFreeModePaintingChange={setIsFreeModePainting}
       >
         {totalCanvases === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
@@ -816,6 +821,7 @@ export default function CanvasPage() {
                           ? highlightedPixelSet
                           : undefined
                       }
+                      isFreeModePainting={isFreeModePainting}
                     />
                   </div>
                 )}
