@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
@@ -756,13 +755,6 @@ export function Canvas({
     }
   };
 
-  const handleDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    const focusX = event.clientX - (rect?.left ?? 0);
-    const focusY = event.clientY - (rect?.top ?? 0);
-    zoomTo(scaleRef.current * ZOOM_STEP, focusX, focusY);
-  };
-
   const handleMouseLeave = () => {
     if (hoveredCellRef.current) {
       hoveredCellRef.current = null;
@@ -777,7 +769,6 @@ export function Canvas({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      onDoubleClick={handleDoubleClick}
       onMouseLeave={handleMouseLeave}
       className={`relative h-full w-full overflow-hidden select-none touch-none ${isInteracting ? "cursor-grabbing" : "cursor-grab"} ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
