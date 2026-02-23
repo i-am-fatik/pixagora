@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Move, Play, Redo2, Trash2, Undo2, X } from "lucide-react";
+import { Check, Coins, Brush, Move, Play, Redo2, Trash2, Undo2, X } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
 
@@ -39,6 +39,8 @@ type CanvasPageLayoutProps = {
   showMoveHint?: boolean;
   onDismissMoveHint?: () => void;
   replayCanvasId?: string;
+  isFreeModePainting?: boolean;
+  onFreeModePaintingChange?: (value: boolean) => void;
 };
 
 export function CanvasPageLayout({
@@ -72,6 +74,8 @@ export function CanvasPageLayout({
   showMoveHint = false,
   onDismissMoveHint,
   replayCanvasId,
+  isFreeModePainting = false,
+  onFreeModePaintingChange,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
 
@@ -220,7 +224,23 @@ export function CanvasPageLayout({
                 />
               </div>
 
+              <span className="hidden h-5 w-px bg-muted-foreground/30 sm:inline-block" />
+              {onFreeModePaintingChange && (
+                  <button
+                    type="button"
+                    onClick={() => onFreeModePaintingChange(!isFreeModePainting)}
+                    aria-label={isFreeModePainting ? "Vypnout režim kreslení tažením" : "Zapnout režim kreslení tažením"}
+                    title={isFreeModePainting ? "Vypnout režim kreslení tažením" : "Zapnout režim kreslení tažením"}
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground sm:h-9 sm:w-9 ${isFreeModePainting ? "text-green-500" : ""}`}
+                  >
+                    <Brush className="h-4 w-4" />
+                  </button>
+                )}
+
+              <div className="flex-1"/>
+
               <div className="flex items-center gap-1 shrink-0 sm:gap-2">
+                
                 {showInlineBubble && (
                   <div className="hidden items-center gap-2 rounded-full border bg-background/80 px-3 py-1 text-[12px] font-medium text-muted-foreground lg:flex">
                     <span className="whitespace-nowrap">

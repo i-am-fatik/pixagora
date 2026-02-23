@@ -27,6 +27,9 @@ type CanvasProps = {
   highlightedPixels?: Set<string>;
   movePreviewPixels?: Pixel[] | null;
   movePreviewActive?: boolean;
+  isFreeModePainting?: boolean;
+  onStrokeStart?: () => void;
+  onStrokeEnd?: () => void;
 };
 
 function drawGrid(
@@ -199,6 +202,7 @@ function hitTest(
   gap: number,
   gridW: number,
   gridH: number,
+  cellInsetFraction?: number,
 ): { x: number; y: number } | null {
   const localX = (clientX - containerRect.left - translate.x) / scale;
   const localY = (clientY - containerRect.top - translate.y) / scale;
@@ -213,7 +217,52 @@ function hitTest(
   if (inCellX > cellSize || inCellY > cellSize) {
     return null;
   }
+  if (cellInsetFraction != null && cellInsetFraction > 0) {
+    const margin = cellSize * cellInsetFraction;
+    if (
+      inCellX < margin ||
+      inCellX > cellSize - margin ||
+      inCellY < margin ||
+      inCellY > cellSize - margin
+    ) {
+      return null;
+    }
+  }
   return { x: gx, y: gy };
+}
+
+/** Bresenham line from (x0,y0) to (x1,y1), excluding the start point. */
+function lineCells(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  let dx = Math.abs(x1 - x0);
+  let dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  let cx = x0;
+  let cy = y0;
+  for (;;) {
+    if (cx === x1 && cy === y1) {
+      cells.push({ x: cx, y: cy });
+      break;
+    }
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      cx += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      cy += sy;
+    }
+    cells.push({ x: cx, y: cy });
+  }
+  return cells;
 }
 
 export function Canvas({
@@ -226,6 +275,9 @@ export function Canvas({
   highlightedPixels,
   movePreviewPixels,
   movePreviewActive = false,
+  isFreeModePainting = false,
+  onStrokeStart,
+  onStrokeEnd,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
@@ -272,6 +324,9 @@ export function Canvas({
   const clickOriginRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef(0);
   const needsDrawRef = useRef(false);
+  const isPaintStrokeRef = useRef(false);
+  const lastPaintedCellRef = useRef<{ x: number; y: number } | null>(null);
+  const didPaintStrokeRef = useRef(false);
 
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
@@ -279,6 +334,8 @@ export function Canvas({
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 12;
   const ZOOM_STEP = 1.5;
+  /** Fraction of cell size (0..0.5) by which pointer must be inside the cell to count for free paint. Reduces accidental diagonal paints. */
+  const FREE_PAINT_CELL_INSET = 0.1;
   const [fitScale, setFitScale] = useState(0.9);
   const PREVIEW_MAX = 120;
   const PREVIEW_MARGIN = 12;
@@ -845,6 +902,36 @@ export function Canvas({
       return;
     }
 
+    const isMouse = event.pointerType === "mouse";
+    if (isFreeModePainting && isMouse) {
+      isPaintStrokeRef.current = true;
+      didPaintStrokeRef.current = true;
+      lastPaintedCellRef.current = null;
+      onStrokeStart?.();
+      hoveredCellRef.current = null;
+      scheduleRedraw();
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const cell = hitTest(
+          event.clientX,
+          event.clientY,
+          rect,
+          translateRef.current,
+          scaleRef.current,
+          baseCellSize,
+          CELL_GAP,
+          width,
+          height,
+        );
+        if (cell) {
+          onPixelClick(cell.x, cell.y);
+          lastPaintedCellRef.current = cell;
+        }
+      }
+      setIsInteracting(true);
+      return;
+    }
+
     panRef.current = {
       startX: pointer.x,
       startY: pointer.y,
@@ -893,8 +980,11 @@ export function Canvas({
           }
         }
         const prev = hoveredCellRef.current;
-        if (cell?.x !== prev?.x || cell?.y !== prev?.y) {
-          hoveredCellRef.current = cell;
+        const hideHoverDuringStroke =
+          isFreeModePainting && isPaintStrokeRef.current;
+        const nextHover = hideHoverDuringStroke ? null : cell;
+        if (nextHover?.x !== prev?.x || nextHover?.y !== prev?.y) {
+          hoveredCellRef.current = nextHover;
           scheduleRedraw();
         } else {
           scheduleRedraw();
@@ -929,6 +1019,37 @@ export function Canvas({
       setScale(nextScale);
       translateRef.current = clamped;
       setTranslate(clamped);
+      return;
+    }
+
+    if (isFreeModePainting && event.pointerType === "mouse" && isPaintStrokeRef.current) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const cell = hitTest(
+          event.clientX,
+          event.clientY,
+          rect,
+          translateRef.current,
+          scaleRef.current,
+          baseCellSize,
+          CELL_GAP,
+          width,
+          height,
+          FREE_PAINT_CELL_INSET,
+        );
+        const last = lastPaintedCellRef.current;
+        if (cell && (last?.x !== cell.x || last?.y !== cell.y)) {
+          if (last) {
+            const gap = lineCells(last.x, last.y, cell.x, cell.y);
+            for (const g of gap) {
+              onPixelClick(g.x, g.y);
+            }
+          } else {
+            onPixelClick(cell.x, cell.y);
+          }
+          lastPaintedCellRef.current = cell;
+        }
+      }
       return;
     }
 
@@ -976,10 +1097,17 @@ export function Canvas({
     if (pointers.size < 2) {
       pinchRef.current = null;
     }
+    const hadPaintStroke = didPaintStrokeRef.current;
     if (pointers.size === 0) {
       panRef.current = null;
       setIsInteracting(false);
       edgeSwipeTriggeredRef.current = false;
+      isPaintStrokeRef.current = false;
+      lastPaintedCellRef.current = null;
+      didPaintStrokeRef.current = false;
+      if (hadPaintStroke) {
+        onStrokeEnd?.();
+      }
     }
 
     if (movePreviewActive && !isCoarsePointer) {
@@ -987,7 +1115,12 @@ export function Canvas({
     }
 
     const origin = clickOriginRef.current;
-    if (origin && !edgeSwipeTriggeredRef.current && !pinchRef.current) {
+    if (
+      !hadPaintStroke &&
+      origin &&
+      !edgeSwipeTriggeredRef.current &&
+      !pinchRef.current
+    ) {
       if (movePreviewActive && isCoarsePointer) {
         clickOriginRef.current = null;
         return;
@@ -1153,13 +1286,15 @@ export function Canvas({
       onPointerCancel={handlePointerUp}
       onMouseLeave={handleMouseLeave}
       className={`relative h-full w-full overflow-hidden select-none touch-none ${
-        movePreviewActive
-          ? isInteracting
-            ? "cursor-grabbing"
-            : "cursor-crosshair"
-          : isInteracting
-            ? "cursor-grabbing"
-            : "cursor-pointer"
+        isFreeModePainting
+          ? "cursor-crosshair"
+          : movePreviewActive
+            ? isInteracting
+              ? "cursor-grabbing"
+              : "cursor-crosshair"
+            : isInteracting
+              ? "cursor-grabbing"
+              : "cursor-pointer"
       } ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
       <div
