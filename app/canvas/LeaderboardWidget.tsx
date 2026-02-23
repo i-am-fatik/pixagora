@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { Crown, ChevronRight, Trophy, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 
 type LeaderboardEntry = {
   userId: string;
@@ -76,7 +77,11 @@ function LeaderboardRow({
   );
 }
 
-export function LeaderboardWidget({ viewerId }: { viewerId?: string }) {
+export function LeaderboardWidget({
+  viewerId,
+}: {
+  viewerId?: Id<"users">;
+}) {
   const [open, setOpen] = useState(false);
   const preview = useQuery(api.leaderboard.list, { limit: 4 });
   const full = useQuery(api.leaderboard.list, open ? {} : "skip");
