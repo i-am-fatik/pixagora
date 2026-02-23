@@ -266,18 +266,25 @@ export function Canvas({
   const [previewCell, setPreviewCell] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const [previewDock, setPreviewDock] = useState<"left" | "right">("right");
+  const previewDock = "right" as const;
   const previewRafRef = useRef<number | null>(null);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  const [isPreviewDragging, setIsPreviewDragging] = useState(false);
+  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
   const clickOriginRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef(0);
   const needsDrawRef = useRef(false);
+
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, value));
 
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 12;
   const ZOOM_STEP = 1.5;
   const [fitScale, setFitScale] = useState(0.9);
   const PREVIEW_MAX = 120;
+  const PREVIEW_MARGIN = 12;
   const previewPixels = useMemo(() => {
     if (!movePreviewPixels || movePreviewPixels.length === 0) {
       return [];
@@ -297,7 +304,7 @@ export function Canvas({
       !movePreviewActive ||
       !previewCell ||
       !movePreviewPixels?.length ||
-      isCoarsePointer
+      (isCoarsePointer && !isPreviewDragging)
     ) {
       return null;
     }
@@ -319,23 +326,45 @@ export function Canvas({
   }, [
     height,
     isCoarsePointer,
+    isPreviewDragging,
     movePreviewActive,
     movePreviewPixels,
     previewCell,
     width,
   ]);
+  const getDockPosition = useCallback(() => {
+    const dockTop = Math.max(
+      PREVIEW_MARGIN,
+      Math.min(72, containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN),
+    );
+    const dockLeft =
+      previewDock === "left"
+        ? PREVIEW_MARGIN
+        : Math.max(
+            PREVIEW_MARGIN,
+            containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+          );
+    return { left: dockLeft, top: dockTop };
+  }, [containerSize.height, containerSize.width, previewDock]);
+
   const previewStyle = useMemo(() => {
     if (isCoarsePointer) {
-      const margin = 12;
-      const top = Math.max(
-        12,
-        Math.min(72, containerSize.height - PREVIEW_MAX - margin),
+      const dock = getDockPosition();
+      if (!isPreviewDragging || !previewPos) {
+        return dock;
+      }
+      const maxX = Math.max(
+        PREVIEW_MARGIN,
+        containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
       );
-      const left =
-        previewDock === "left"
-          ? margin
-          : Math.max(margin, containerSize.width - PREVIEW_MAX - margin);
-      return { left, top };
+      const maxY = Math.max(
+        PREVIEW_MARGIN,
+        containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
+      );
+      return {
+        left: clamp(previewPos.x, PREVIEW_MARGIN, maxX),
+        top: clamp(previewPos.y, PREVIEW_MARGIN, maxY),
+      };
     }
     if (!previewPos) {
       return null;
@@ -357,8 +386,9 @@ export function Canvas({
   }, [
     containerSize.height,
     containerSize.width,
+    getDockPosition,
     isCoarsePointer,
-    previewDock,
+    isPreviewDragging,
     previewPos,
   ]);
 
@@ -443,9 +473,6 @@ export function Canvas({
     }
     return map;
   }, [pixels]);
-
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(max, Math.max(min, value));
 
   const clampTranslate = useCallback(
     (x: number, y: number, nextScale: number) => {
@@ -711,7 +738,9 @@ export function Canvas({
     if (!movePreviewActive || !movePreviewPixels || movePreviewPixels.length === 0) {
       setPreviewPos(null);
       setPreviewCell(null);
-      setPreviewDock("right");
+      setIsPreviewDragging(false);
+      dragOffsetRef.current = null;
+      dragPointerIdRef.current = null;
     }
   }, [movePreviewActive, movePreviewPixels]);
 
@@ -755,6 +784,36 @@ export function Canvas({
     return () => container.removeEventListener("wheel", handleWheel);
   }, [zoomTo]);
 
+  const updatePreviewCell = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const cell = hitTest(
+        clientX,
+        clientY,
+        rect,
+        translateRef.current,
+        scaleRef.current,
+        baseCellSize,
+        CELL_GAP,
+        width,
+        height,
+      );
+      setPreviewCell((prev) => {
+        if (!cell) {
+          return prev ? null : prev;
+        }
+        if (prev && prev.x === cell.x && prev.y === cell.y) {
+          return prev;
+        }
+        return cell;
+      });
+    },
+    [baseCellSize, height, width],
+  );
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== undefined && event.button !== 0) {
       return;
@@ -765,24 +824,8 @@ export function Canvas({
 
     clickOriginRef.current = { x: event.clientX, y: event.clientY };
 
-    if (movePreviewActive) {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (rect) {
-        const cell = hitTest(
-          event.clientX,
-          event.clientY,
-          rect,
-          translateRef.current,
-          scaleRef.current,
-          baseCellSize,
-          CELL_GAP,
-          width,
-          height,
-        );
-        if (cell && (cell.x !== previewCell?.x || cell.y !== previewCell?.y)) {
-          setPreviewCell(cell);
-        }
-      }
+    if (movePreviewActive && !isCoarsePointer) {
+      updatePreviewCell(event.clientX, event.clientY);
     }
 
     const allowSwipe =
@@ -829,7 +872,7 @@ export function Canvas({
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const pointers = pointersRef.current;
 
-    if (event.pointerType !== "touch" || movePreviewActive) {
+    if (event.pointerType !== "touch" || (movePreviewActive && !isCoarsePointer)) {
       const rect = containerRef.current?.getBoundingClientRect();
       if (rect) {
         const cell = hitTest(
@@ -844,11 +887,7 @@ export function Canvas({
           height,
         );
         if (movePreviewActive) {
-          if (cell && (cell.x !== previewCell?.x || cell.y !== previewCell?.y)) {
-            setPreviewCell(cell);
-          } else if (!cell && previewCell) {
-            setPreviewCell(null);
-          }
+          updatePreviewCell(event.clientX, event.clientY);
         }
         hoverPointerRef.current = {
           x: event.clientX - rect.left,
@@ -978,28 +1017,16 @@ export function Canvas({
       allowSwipeRef.current = false;
     }
 
-    if (movePreviewActive) {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (rect) {
-        const cell = hitTest(
-          event.clientX,
-          event.clientY,
-          rect,
-          translateRef.current,
-          scaleRef.current,
-          baseCellSize,
-          CELL_GAP,
-          width,
-          height,
-        );
-        if (cell && (cell.x !== previewCell?.x || cell.y !== previewCell?.y)) {
-          setPreviewCell(cell);
-        }
-      }
+    if (movePreviewActive && !isCoarsePointer) {
+      updatePreviewCell(event.clientX, event.clientY);
     }
 
     const origin = clickOriginRef.current;
     if (origin && !edgeSwipeTriggeredRef.current && !pinchRef.current) {
+      if (movePreviewActive && isCoarsePointer) {
+        clickOriginRef.current = null;
+        return;
+      }
       const dist = Math.hypot(
         event.clientX - origin.x,
         event.clientY - origin.y,
@@ -1052,6 +1079,99 @@ export function Canvas({
       setPreviewCell(null);
       scheduleRedraw();
     }
+  };
+
+  const handlePreviewPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer || !movePreviewActive) {
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    dragPointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsPreviewDragging(true);
+    const dock = getDockPosition();
+    if (!previewPos) {
+      setPreviewPos({ x: dock.left, y: dock.top });
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    dragOffsetRef.current = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    updatePreviewCell(event.clientX, event.clientY);
+  };
+
+  const handlePreviewPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer) {
+      return;
+    }
+    if (dragPointerIdRef.current !== event.pointerId || !isPreviewDragging) {
+      event.stopPropagation();
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect || !dragOffsetRef.current) {
+      return;
+    }
+    const maxX = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    const maxY = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    const nextLeft =
+      event.clientX - containerRect.left - dragOffsetRef.current.x;
+    const nextTop = event.clientY - containerRect.top - dragOffsetRef.current.y;
+    setPreviewPos({
+      x: clamp(nextLeft, PREVIEW_MARGIN, maxX),
+      y: clamp(nextTop, PREVIEW_MARGIN, maxY),
+    });
+    updatePreviewCell(event.clientX, event.clientY);
+  };
+
+  const handlePreviewPointerUp = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer) {
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    if (dragPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+    dragPointerIdRef.current = null;
+    dragOffsetRef.current = null;
+    setIsPreviewDragging(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const cell = hitTest(
+        event.clientX,
+        event.clientY,
+        rect,
+        translateRef.current,
+        scaleRef.current,
+        baseCellSize,
+        CELL_GAP,
+        width,
+        height,
+      );
+      if (cell) {
+        setPreviewCell(cell);
+        onPixelClick(cell.x, cell.y);
+      }
+    }
+    setPreviewPos(null);
   };
 
   return (
@@ -1125,29 +1245,14 @@ export function Canvas({
         movePreviewPixels.length > 0 &&
         previewStyle && (
           <div
-            className={`absolute ${isCoarsePointer ? "pointer-events-auto" : "pointer-events-none"}`}
+            className={`absolute ${
+              isCoarsePointer ? "pointer-events-auto" : "pointer-events-none"
+            } ${isPreviewDragging ? "opacity-0" : "opacity-100"}`}
             style={previewStyle}
-            onPointerDown={(event) => {
-              if (isCoarsePointer) {
-                event.stopPropagation();
-                setPreviewDock((prev) => (prev === "right" ? "left" : "right"));
-              }
-            }}
-            onPointerMove={(event) => {
-              if (isCoarsePointer) {
-                event.stopPropagation();
-              }
-            }}
-            onPointerUp={(event) => {
-              if (isCoarsePointer) {
-                event.stopPropagation();
-              }
-            }}
-            onPointerCancel={(event) => {
-              if (isCoarsePointer) {
-                event.stopPropagation();
-              }
-            }}
+            onPointerDown={handlePreviewPointerDown}
+            onPointerMove={handlePreviewPointerMove}
+            onPointerUp={handlePreviewPointerUp}
+            onPointerCancel={handlePreviewPointerUp}
           >
             <div className="rounded-2xl bg-background/90 p-2 shadow-lg backdrop-blur">
               <PixelPreview pixels={previewPixels} maxSize={PREVIEW_MAX} />
