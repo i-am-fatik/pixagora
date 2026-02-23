@@ -34,10 +34,12 @@ type PendingChange = {
   nextState?: Record<string, string>;
 };
 
+type HistoryEntry = PendingChange | PendingChange[];
+
 type PendingState = {
   pending: Record<string, string>;
-  history: PendingChange[];
-  redo: PendingChange[];
+  history: HistoryEntry[];
+  redo: HistoryEntry[];
 };
 
 type PendingAction =
@@ -45,6 +47,7 @@ type PendingAction =
   | { type: "replace"; nextPending: Record<string, string> }
   | { type: "undo" }
   | { type: "redo" }
+  | { type: "merge-last"; fromIndex: number }
   | { type: "reset" }
   | { type: "load"; state: PendingState };
 
@@ -95,7 +98,7 @@ function pendingReducer(
       if (!last) {
         return state;
       }
-      if (last.prevState && last.nextState) {
+      if (!Array.isArray(last) && last.prevState && last.nextState) {
         return {
           pending: { ...last.prevState },
           history: state.history.slice(0, -1),
@@ -103,11 +106,15 @@ function pendingReducer(
         };
       }
       const nextPendingMap = { ...state.pending };
-      if (last.key) {
-        if (last.prevPending === undefined) {
-          delete nextPendingMap[last.key];
-        } else {
-          nextPendingMap[last.key] = last.prevPending;
+      const changes = Array.isArray(last) ? last : [last];
+      for (let i = changes.length - 1; i >= 0; i--) {
+        const c = changes[i];
+        if (c.key) {
+          if (c.prevPending === undefined) {
+            delete nextPendingMap[c.key];
+          } else {
+            nextPendingMap[c.key] = c.prevPending;
+          }
         }
       }
       return {
@@ -121,7 +128,7 @@ function pendingReducer(
       if (!last) {
         return state;
       }
-      if (last.prevState && last.nextState) {
+      if (!Array.isArray(last) && last.prevState && last.nextState) {
         return {
           pending: { ...last.nextState },
           history: [...state.history, last],
@@ -129,17 +136,39 @@ function pendingReducer(
         };
       }
       const nextPendingMap = { ...state.pending };
-      if (last.key) {
-        if (last.nextPending === undefined) {
-          delete nextPendingMap[last.key];
-        } else {
-          nextPendingMap[last.key] = last.nextPending;
+      const changes = Array.isArray(last) ? last : [last];
+      for (const c of changes) {
+        if (c.key) {
+          if (c.nextPending === undefined) {
+            delete nextPendingMap[c.key];
+          } else {
+            nextPendingMap[c.key] = c.nextPending;
+          }
         }
       }
       return {
         pending: nextPendingMap,
         history: [...state.history, last],
         redo: state.redo.slice(0, -1),
+      };
+    }
+    case "merge-last": {
+      const fromIndex = Math.max(0, Math.min(action.fromIndex, state.history.length));
+      const toMerge = state.history.slice(fromIndex);
+      if (toMerge.length <= 1) {
+        return state;
+      }
+      const merged: PendingChange[] = [];
+      for (const entry of toMerge) {
+        if (Array.isArray(entry)) {
+          merged.push(...entry);
+        } else {
+          merged.push(entry);
+        }
+      }
+      return {
+        ...state,
+        history: [...state.history.slice(0, fromIndex), merged],
       };
     }
     case "reset": {
@@ -202,6 +231,7 @@ export default function CanvasPage() {
     pendingReducer,
     initialPendingState,
   );
+  const strokeHistoryStartRef = useRef<number | null>(null);
   const reelsRef = useRef<CanvasReelsHandle | null>(null);
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const canvasIdRef = useRef<string | undefined>(undefined);
@@ -632,9 +662,7 @@ export default function CanvasPage() {
     ).toLowerCase();
 
     if (selectedColor.toLowerCase() === visibleColor) {
-      if (!isFreeModePainting) {
-        dispatch({ type: "apply", key, nextPending: undefined });
-      }
+      dispatch({ type: "apply", key, nextPending: undefined });
     } else {
       const nextPending =
         selectedColor.toLowerCase() === (serverColor ?? "#ffffff").toLowerCase()
@@ -822,6 +850,15 @@ export default function CanvasPage() {
                           : undefined
                       }
                       isFreeModePainting={isFreeModePainting}
+                      onStrokeStart={() => {
+                        strokeHistoryStartRef.current = pendingState.history.length;
+                      }}
+                      onStrokeEnd={() => {
+                        if (strokeHistoryStartRef.current !== null) {
+                          dispatch({ type: "merge-last", fromIndex: strokeHistoryStartRef.current });
+                          strokeHistoryStartRef.current = null;
+                        }
+                      }}
                     />
                   </div>
                 )}

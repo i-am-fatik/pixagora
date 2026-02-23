@@ -28,6 +28,8 @@ type CanvasProps = {
   movePreviewPixels?: Pixel[] | null;
   movePreviewActive?: boolean;
   isFreeModePainting?: boolean;
+  onStrokeStart?: () => void;
+  onStrokeEnd?: () => void;
 };
 
 function drawGrid(
@@ -229,6 +231,40 @@ function hitTest(
   return { x: gx, y: gy };
 }
 
+/** Bresenham line from (x0,y0) to (x1,y1), excluding the start point. */
+function lineCells(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  let dx = Math.abs(x1 - x0);
+  let dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  let cx = x0;
+  let cy = y0;
+  for (;;) {
+    if (cx === x1 && cy === y1) {
+      cells.push({ x: cx, y: cy });
+      break;
+    }
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      cx += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      cy += sy;
+    }
+    cells.push({ x: cx, y: cy });
+  }
+  return cells;
+}
+
 export function Canvas({
   pixels,
   width,
@@ -240,6 +276,8 @@ export function Canvas({
   movePreviewPixels,
   movePreviewActive = false,
   isFreeModePainting = false,
+  onStrokeStart,
+  onStrokeEnd,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
@@ -869,6 +907,7 @@ export function Canvas({
       isPaintStrokeRef.current = true;
       didPaintStrokeRef.current = true;
       lastPaintedCellRef.current = null;
+      onStrokeStart?.();
       hoveredCellRef.current = null;
       scheduleRedraw();
       const rect = containerRef.current?.getBoundingClientRect();
@@ -1000,7 +1039,14 @@ export function Canvas({
         );
         const last = lastPaintedCellRef.current;
         if (cell && (last?.x !== cell.x || last?.y !== cell.y)) {
-          onPixelClick(cell.x, cell.y);
+          if (last) {
+            const gap = lineCells(last.x, last.y, cell.x, cell.y);
+            for (const g of gap) {
+              onPixelClick(g.x, g.y);
+            }
+          } else {
+            onPixelClick(cell.x, cell.y);
+          }
           lastPaintedCellRef.current = cell;
         }
       }
@@ -1059,6 +1105,9 @@ export function Canvas({
       isPaintStrokeRef.current = false;
       lastPaintedCellRef.current = null;
       didPaintStrokeRef.current = false;
+      if (hadPaintStroke) {
+        onStrokeEnd?.();
+      }
     }
 
     if (movePreviewActive && !isCoarsePointer) {
