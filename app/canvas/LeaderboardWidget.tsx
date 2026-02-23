@@ -51,9 +51,7 @@ function LeaderboardRow({
         <span className="w-4 shrink-0 text-[11px] text-muted-foreground">
           {rank}.
         </span>
-        {rank === 1 && (
-          <Crown className="h-3 w-3 shrink-0 text-amber-400" />
-        )}
+        {rank === 1 && <Crown className="h-3 w-3 shrink-0 text-amber-400" />}
         <span
           className="truncate text-xs font-semibold sm:overflow-visible sm:text-clip sm:whitespace-normal"
           style={{ color: entry.displayColor }}
@@ -77,11 +75,7 @@ function LeaderboardRow({
   );
 }
 
-export function LeaderboardWidget({
-  viewerId,
-}: {
-  viewerId?: Id<"users">;
-}) {
+export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
   const [open, setOpen] = useState(false);
   const preview = useQuery(api.leaderboard.list, { limit: 4 });
   const full = useQuery(api.leaderboard.list, open ? {} : "skip");
@@ -115,9 +109,7 @@ export function LeaderboardWidget({
           </div>
           <div className="mt-2 space-y-1 hidden sm:block">
             {previewLoading ? (
-              <div className="text-[11px] text-muted-foreground">
-                Načítám…
-              </div>
+              <div className="text-[11px] text-muted-foreground">Načítám…</div>
             ) : topThree.length > 0 ? (
               <>
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-black/5 px-2 py-1 dark:bg-white/5">
@@ -127,7 +119,10 @@ export function LeaderboardWidget({
                       style={{
                         borderColor: topThree[0].displayColor,
                         color: topThree[0].displayColor,
-                        backgroundColor: withAlpha(topThree[0].displayColor, "22"),
+                        backgroundColor: withAlpha(
+                          topThree[0].displayColor,
+                          "22",
+                        ),
                       }}
                     >
                       1
@@ -143,7 +138,7 @@ export function LeaderboardWidget({
                     {formatPx(topThree[0].count)}
                   </span>
                 </div>
-                <div className="hidden sm:block">
+                <div className="hidden sm:space-y-1 sm:block">
                   {topThree.slice(1).map((entry, index) => (
                     <div
                       key={entry.userId}
@@ -155,7 +150,10 @@ export function LeaderboardWidget({
                           style={{
                             borderColor: entry.displayColor,
                             color: entry.displayColor,
-                            backgroundColor: withAlpha(entry.displayColor, "22"),
+                            backgroundColor: withAlpha(
+                              entry.displayColor,
+                              "22",
+                            ),
                           }}
                         >
                           {index + 2}
@@ -189,9 +187,7 @@ export function LeaderboardWidget({
                   >
                     {rank.rank}.
                   </span>{" "}
-                  místě s{" "}
-                  <span className="font-semibold">{rank.count}</span> px
-                  .
+                  místě s <span className="font-semibold">{rank.count}</span>px.
                 </span>
               </div>
             )}
@@ -227,7 +223,10 @@ export function LeaderboardWidget({
                         style={{
                           borderColor: modalTop[1].displayColor,
                           color: modalTop[1].displayColor,
-                          backgroundColor: withAlpha(modalTop[1].displayColor, "22"),
+                          backgroundColor: withAlpha(
+                            modalTop[1].displayColor,
+                            "22",
+                          ),
                         }}
                       >
                         {initials(modalTop[1].displayName)}
@@ -258,7 +257,10 @@ export function LeaderboardWidget({
                         style={{
                           borderColor: modalTop[0].displayColor,
                           color: modalTop[0].displayColor,
-                          backgroundColor: withAlpha(modalTop[0].displayColor, "22"),
+                          backgroundColor: withAlpha(
+                            modalTop[0].displayColor,
+                            "22",
+                          ),
                         }}
                       >
                         {initials(modalTop[0].displayName)}
@@ -286,7 +288,10 @@ export function LeaderboardWidget({
                         style={{
                           borderColor: modalTop[2].displayColor,
                           color: modalTop[2].displayColor,
-                          backgroundColor: withAlpha(modalTop[2].displayColor, "22"),
+                          backgroundColor: withAlpha(
+                            modalTop[2].displayColor,
+                            "22",
+                          ),
                         }}
                       >
                         {initials(modalTop[2].displayName)}
@@ -312,9 +317,7 @@ export function LeaderboardWidget({
             )}
             <div className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
               {fullLoading ? (
-                <div className="text-sm text-muted-foreground">
-                  Načítám…
-                </div>
+                <div className="text-sm text-muted-foreground">Načítám…</div>
               ) : allEntries.length > 0 ? (
                 allEntries.map((entry, index) => (
                   <div
@@ -325,11 +328,7 @@ export function LeaderboardWidget({
                         : "border-black/5 bg-background/60 dark:border-white/5"
                     }`}
                   >
-                    <LeaderboardRow
-                      entry={entry}
-                      rank={index + 1}
-                      showEmail
-                    />
+                    <LeaderboardRow entry={entry} rank={index + 1} showEmail />
                   </div>
                 ))
               ) : (
