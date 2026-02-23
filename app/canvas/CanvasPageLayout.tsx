@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Play, Redo2, Trash2, Undo2 } from "lucide-react";
+import { Check, Coins, Move, Play, Redo2, Trash2, Undo2, X } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
 
@@ -33,6 +33,11 @@ type CanvasPageLayoutProps = {
   isCommitting?: boolean;
   onClearPending: () => void;
   canClear: boolean;
+  onMove?: () => void;
+  canMove?: boolean;
+  moveActive?: boolean;
+  showMoveHint?: boolean;
+  onDismissMoveHint?: () => void;
   replayCanvasId?: string;
 };
 
@@ -61,6 +66,11 @@ export function CanvasPageLayout({
   isCommitting = false,
   onClearPending,
   canClear,
+  onMove,
+  canMove = false,
+  moveActive = false,
+  showMoveHint = false,
+  onDismissMoveHint,
   replayCanvasId,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
@@ -250,6 +260,17 @@ export function CanvasPageLayout({
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
+                {onMove && (
+                  <button
+                    type="button"
+                    onClick={onMove}
+                    disabled={!canMove}
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9 ${moveActive ? "bg-foreground/10 text-foreground" : ""}`}
+                    aria-label="Přesunout návrh"
+                  >
+                    <Move className="h-4 w-4" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onCommit}
@@ -278,6 +299,38 @@ export function CanvasPageLayout({
               </span>
             </div>
           </div>
+          {showMoveHint && (
+            <div className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 sm:bottom-[6.5rem]">
+              <div className="pointer-events-auto flex max-w-sm items-start gap-2 rounded-2xl border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+                <span>
+                  Cena pixelu se zdražila během tvé editace, zvaž přesunutí pomocí
+                  nástroje{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onMove?.();
+                      onDismissMoveHint?.();
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-black/10 bg-background/80 px-2 py-0.5 text-[11px] font-semibold text-foreground transition hover:text-foreground dark:border-white/10"
+                  >
+                    <Move className="h-3 w-3" />
+                    Move tool
+                  </button>
+                  .
+                </span>
+                {onDismissMoveHint && (
+                  <button
+                    type="button"
+                    onClick={onDismissMoveHint}
+                    className="mt-0.5 rounded-full p-1 text-muted-foreground transition hover:text-foreground"
+                    aria-label="Zavřít"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

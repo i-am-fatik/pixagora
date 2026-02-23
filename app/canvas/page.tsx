@@ -23,9 +23,11 @@ import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 
 type PendingChange = {
-  key: string;
+  key?: string;
   prevPending?: string;
   nextPending?: string;
+  prevState?: Record<string, string>;
+  nextState?: Record<string, string>;
 };
 
 type PendingState = {
@@ -36,6 +38,7 @@ type PendingState = {
 
 type PendingAction =
   | { type: "apply"; key: string; nextPending?: string }
+  | { type: "replace"; nextPending: Record<string, string> }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "reset" }
@@ -72,16 +75,36 @@ function pendingReducer(
         redo: [],
       };
     }
+    case "replace": {
+      const prevState = { ...state.pending };
+      return {
+        pending: { ...action.nextPending },
+        history: [
+          ...state.history,
+          { prevState, nextState: { ...action.nextPending } },
+        ],
+        redo: [],
+      };
+    }
     case "undo": {
       const last = state.history[state.history.length - 1];
       if (!last) {
         return state;
       }
+      if (last.prevState && last.nextState) {
+        return {
+          pending: { ...last.prevState },
+          history: state.history.slice(0, -1),
+          redo: [...state.redo, last],
+        };
+      }
       const nextPendingMap = { ...state.pending };
-      if (last.prevPending === undefined) {
-        delete nextPendingMap[last.key];
-      } else {
-        nextPendingMap[last.key] = last.prevPending;
+      if (last.key) {
+        if (last.prevPending === undefined) {
+          delete nextPendingMap[last.key];
+        } else {
+          nextPendingMap[last.key] = last.prevPending;
+        }
       }
       return {
         pending: nextPendingMap,
@@ -94,11 +117,20 @@ function pendingReducer(
       if (!last) {
         return state;
       }
+      if (last.prevState && last.nextState) {
+        return {
+          pending: { ...last.nextState },
+          history: [...state.history, last],
+          redo: state.redo.slice(0, -1),
+        };
+      }
       const nextPendingMap = { ...state.pending };
-      if (last.nextPending === undefined) {
-        delete nextPendingMap[last.key];
-      } else {
-        nextPendingMap[last.key] = last.nextPending;
+      if (last.key) {
+        if (last.nextPending === undefined) {
+          delete nextPendingMap[last.key];
+        } else {
+          nextPendingMap[last.key] = last.nextPending;
+        }
       }
       return {
         pending: nextPendingMap,
@@ -153,6 +185,13 @@ export default function CanvasPage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [initialCost, setInitialCost] = useState(0);
   const [initialPendingCount, setInitialPendingCount] = useState(0);
+  const [moveDraft, setMoveDraft] = useState<{
+    pixels: { x: number; y: number; color: string }[];
+  } | null>(null);
+  const [pendingPriceBaseline, setPendingPriceBaseline] = useState<
+    Record<string, number | null>
+  >({});
+  const [moveHintDismissed, setMoveHintDismissed] = useState(false);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
     initialPendingState,
@@ -191,6 +230,7 @@ export default function CanvasPage() {
     }
     canvasIdRef.current = canvasId;
     skipSaveRef.current = true;
+    setMoveDraft(null);
     try {
       const raw = localStorage.getItem(`pixagora-pending-${canvasId}`);
       if (raw) {
@@ -292,6 +332,7 @@ export default function CanvasPage() {
     setToken("");
     setLoggedIn(false);
     dispatch({ type: "reset" });
+    setMoveDraft(null);
   };
 
   const showInvalidToken = loggedIn && user === null;
@@ -335,6 +376,7 @@ export default function CanvasPage() {
       setToken("");
       setLoggedIn(false);
       dispatch({ type: "reset" });
+      setMoveDraft(null);
       setPopupMode("anonymous");
       setPopupOpen(true);
     }
@@ -356,6 +398,7 @@ export default function CanvasPage() {
   const handleCancelClear = () => setClearConfirmOpen(false);
   const handleConfirmClear = () => {
     dispatch({ type: "reset" });
+    setMoveDraft(null);
     setClearConfirmOpen(false);
   };
 
@@ -370,16 +413,18 @@ export default function CanvasPage() {
     return map;
   }, [pixels]);
 
+  const pendingForRender = moveDraft ? {} : pendingState.pending;
+
   const combinedPixelMap = useMemo(() => {
     const map = new Map<string, string>();
     serverPixelMap.forEach((val, key) => {
       map.set(key, val.color);
     });
-    Object.entries(pendingState.pending).forEach(([key, color]) => {
+    Object.entries(pendingForRender).forEach(([key, color]) => {
       map.set(key, color);
     });
     return map;
-  }, [serverPixelMap, pendingState.pending]);
+  }, [serverPixelMap, pendingForRender]);
 
   const activeCanvasPixels = useMemo(() => {
     const result: { x: number; y: number; color: string }[] = [];
@@ -407,6 +452,26 @@ export default function CanvasPage() {
     return result;
   }, [pendingState.pending, serverPixelMap]);
 
+  useEffect(() => {
+    setPendingPriceBaseline((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const key of Object.keys(effectivePending)) {
+        if (next[key] === undefined) {
+          next[key] = serverPixelMap.get(key)?.price ?? null;
+          changed = true;
+        }
+      }
+      for (const key of Object.keys(next)) {
+        if (!effectivePending[key]) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [effectivePending, serverPixelMap]);
+
   const pendingCount = Object.keys(effectivePending).length;
   pendingCountRef.current = pendingCount;
 
@@ -425,6 +490,27 @@ export default function CanvasPage() {
     return cost;
   }, [effectivePending, serverPixelMap, pixelPrice]);
 
+  const priceIncreaseDetected = useMemo(() => {
+    return Object.keys(effectivePending).some((key) => {
+      const baselinePrice = pendingPriceBaseline[key];
+      if (baselinePrice === undefined) {
+        return false;
+      }
+      const baselineCost = nextPixelPrice(pixelPrice, baselinePrice ?? undefined);
+      const currentCost = nextPixelPrice(
+        pixelPrice,
+        serverPixelMap.get(key)?.price,
+      );
+      return currentCost > baselineCost;
+    });
+  }, [effectivePending, pendingPriceBaseline, pixelPrice, serverPixelMap]);
+
+  useEffect(() => {
+    if (!priceIncreaseDetected) {
+      setMoveHintDismissed(false);
+    }
+  }, [priceIncreaseDetected]);
+
   const confirmPreviewPixels = useMemo(() => {
     return Object.entries(effectivePending).map(([key, color]) => {
       const [x, y] = key.split(",").map(Number);
@@ -440,10 +526,31 @@ export default function CanvasPage() {
     [confirmOpen, effectivePending],
   );
 
+  const canUndo = pendingState.history.length > 0 || pendingCount > 0;
+  const canRedo = pendingState.redo.length > 0;
+  const canClear = pendingCount > 0;
+
+  const handleUndo = () => {
+    if (pendingState.history.length > 0) {
+      dispatch({ type: "undo" });
+    } else if (pendingCount > 0) {
+      dispatch({ type: "reset" });
+    }
+  };
+
+  const handleRedo = () => {
+    if (pendingState.redo.length > 0) {
+      dispatch({ type: "redo" });
+    }
+  };
+
   const handleOpenConfirm = () => {
     if (!isAuthenticated) {
       handleOpenAnonymousPopup();
       return;
+    }
+    if (moveDraft) {
+      setMoveDraft(null);
     }
     if (tutorialStep === 3) {
       setTutorialStep(null);
@@ -472,6 +579,25 @@ export default function CanvasPage() {
   };
 
   const handlePixelClick = (x: number, y: number) => {
+    if (moveDraft) {
+      const nextPending: Record<string, string> = {};
+      let hasOutOfBounds = false;
+      for (const px of moveDraft.pixels) {
+        const nx = x + px.x;
+        const ny = y + px.y;
+        if (nx < 0 || ny < 0 || nx >= gridWidth || ny >= gridHeight) {
+          hasOutOfBounds = true;
+          continue;
+        }
+        nextPending[`${nx},${ny}`] = px.color;
+      }
+      if (hasOutOfBounds) {
+        return;
+      }
+      dispatch({ type: "replace", nextPending });
+      setMoveDraft(null);
+      return;
+    }
     const key = `${x},${y}`;
     const serverColor = serverPixelMap.get(key)?.color;
     const visibleColor = (
@@ -489,6 +615,35 @@ export default function CanvasPage() {
           : selectedColor;
       dispatch({ type: "apply", key, nextPending });
     }
+  };
+
+  const handleToggleMove = () => {
+    if (moveDraft) {
+      setMoveDraft(null);
+      return;
+    }
+    if (pendingCount === 0) {
+      return;
+    }
+    const pixels = Object.entries(effectivePending).map(([key, color]) => {
+      const [x, y] = key.split(",").map(Number);
+      return { x, y, color };
+    });
+    if (pixels.length === 0) {
+      return;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    for (const p of pixels) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+    }
+    const relative = pixels.map((p) => ({
+      x: p.x - minX,
+      y: p.y - minY,
+      color: p.color,
+    }));
+    setMoveDraft({ pixels: relative });
   };
 
   const handleCommit = async (): Promise<boolean> => {
@@ -570,15 +725,20 @@ export default function CanvasPage() {
         onSelectColor={setSelectedColor}
         changedCount={pendingCount}
         totalCost={totalCost}
-        onUndo={() => dispatch({ type: "undo" })}
-        onRedo={() => dispatch({ type: "redo" })}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
         onCommit={handleOpenConfirm}
-        canUndo={pendingState.history.length > 0}
-        canRedo={pendingState.redo.length > 0}
-        canCommit={pendingCount > 0 && !!canvasId}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        canCommit={pendingCount > 0 && !!canvasId && !moveDraft}
         isCommitting={isCommitting}
         onClearPending={handleOpenClearConfirm}
-        canClear={pendingState.history.length > 0}
+        canClear={canClear}
+        onMove={handleToggleMove}
+        canMove={pendingCount > 0}
+        moveActive={!!moveDraft}
+        showMoveHint={priceIncreaseDetected && !moveHintDismissed}
+        onDismissMoveHint={() => setMoveHintDismissed(true)}
         showFooter={true}
         onHowItWorks={() => setHowItWorksOpen(true)}
         replayCanvasId={canvasId}
@@ -617,6 +777,10 @@ export default function CanvasPage() {
                           handlePixelClick(x, y);
                         }
                       }}
+                      movePreviewPixels={
+                        index === activeReelIndex ? moveDraft?.pixels ?? null : null
+                      }
+                      movePreviewActive={index === activeReelIndex && !!moveDraft}
                       onEdgeSwipe={
                         index === activeReelIndex ? handleEdgeSwipe : undefined
                       }

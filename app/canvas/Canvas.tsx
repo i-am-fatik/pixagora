@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
+import { PixelPreview } from "./PixelPreview";
 
 type Pixel = {
   x: number;
@@ -24,6 +25,8 @@ type CanvasProps = {
   onPixelClick: (x: number, y: number) => void;
   onEdgeSwipe?: (direction: "next" | "prev") => void;
   highlightedPixels?: Set<string>;
+  movePreviewPixels?: Pixel[] | null;
+  movePreviewActive?: boolean;
 };
 
 function drawGrid(
@@ -41,6 +44,8 @@ function drawGrid(
   viewportW: number,
   viewportH: number,
   highlightedPixels?: Set<string>,
+  moveOverlay?: { map: Map<string, string>; invalid: boolean } | null,
+  showHoverIndicator = true,
 ) {
   const dpr = window.devicePixelRatio || 1;
   ctx.save();
@@ -69,12 +74,17 @@ function drawGrid(
       const key = `${x},${y}`;
       const color = pixelMap.get(key);
       const isHovered = hovered?.x === x && hovered?.y === y;
+      const overlayColor = moveOverlay?.map.get(key);
 
       ctx.globalAlpha = 1;
       ctx.fillStyle = color ?? "#ffffff";
       ctx.fillRect(px, py, cellSize, cellSize);
 
-      if (isHovered && hoverFill) {
+      if (overlayColor) {
+        ctx.globalAlpha = moveOverlay?.invalid ? 0.6 : 0.8;
+        ctx.fillStyle = moveOverlay?.invalid ? "#ef4444" : overlayColor;
+        ctx.fillRect(px, py, cellSize, cellSize);
+      } else if (isHovered && hoverFill) {
         ctx.globalAlpha = color ? 1 : 0.7;
         ctx.fillStyle = selectedColor;
         ctx.fillRect(px, py, cellSize, cellSize);
@@ -155,7 +165,7 @@ function drawGrid(
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  if (hovered && hoverPointer && !hoverFill) {
+  if (showHoverIndicator && hovered && hoverPointer && !hoverFill) {
     const radius = 6;
     const offset = 14;
     let cx = hoverPointer.x + offset;
@@ -214,6 +224,8 @@ export function Canvas({
   onPixelClick,
   onEdgeSwipe,
   highlightedPixels,
+  movePreviewPixels,
+  movePreviewActive = false,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
@@ -248,18 +260,149 @@ export function Canvas({
   const [edgeSwipeFeedback, setEdgeSwipeFeedback] = useState<
     "next" | "prev" | null
   >(null);
+  const [previewPos, setPreviewPos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [previewCell, setPreviewCell] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const previewRafRef = useRef<number | null>(null);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  const [isPreviewDragging, setIsPreviewDragging] = useState(false);
+  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
   const clickOriginRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef(0);
   const needsDrawRef = useRef(false);
+
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, value));
 
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 12;
   const ZOOM_STEP = 1.5;
   const [fitScale, setFitScale] = useState(0.9);
+  const PREVIEW_MAX = 120;
+  const PREVIEW_MARGIN = 12;
+  const previewPixels = useMemo(() => {
+    if (!movePreviewPixels || movePreviewPixels.length === 0) {
+      return [];
+    }
+    if (!movePreviewActive || !previewCell) {
+      return movePreviewPixels;
+    }
+    return movePreviewPixels.map((px) => {
+      const absX = previewCell.x + px.x;
+      const absY = previewCell.y + px.y;
+      const outOfBounds = absX < 0 || absY < 0 || absX >= width || absY >= height;
+      return outOfBounds ? { ...px, color: "#ef4444" } : px;
+    });
+  }, [height, movePreviewActive, movePreviewPixels, previewCell, width]);
+  const moveOverlay = useMemo(() => {
+    if (
+      !movePreviewActive ||
+      !previewCell ||
+      !movePreviewPixels?.length ||
+      (isCoarsePointer && !isPreviewDragging)
+    ) {
+      return null;
+    }
+    let hasOutOfBounds = false;
+    const map = new Map<string, string>();
+    for (const px of movePreviewPixels) {
+      const absX = previewCell.x + px.x;
+      const absY = previewCell.y + px.y;
+      if (absX < 0 || absY < 0 || absX >= width || absY >= height) {
+        hasOutOfBounds = true;
+        continue;
+      }
+      map.set(`${absX},${absY}`, px.color);
+    }
+    if (map.size === 0) {
+      return null;
+    }
+    return { map, invalid: hasOutOfBounds };
+  }, [
+    height,
+    isCoarsePointer,
+    isPreviewDragging,
+    movePreviewActive,
+    movePreviewPixels,
+    previewCell,
+    width,
+  ]);
+  const getDockPosition = useCallback(() => {
+    const dockTop = Math.max(
+      PREVIEW_MARGIN,
+      Math.min(72, containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN),
+    );
+    const dockLeft = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    return { left: dockLeft, top: dockTop };
+  }, [containerSize.height, containerSize.width]);
+
+  const previewStyle = useMemo(() => {
+    if (isCoarsePointer) {
+      const dock = getDockPosition();
+      if (!isPreviewDragging || !previewPos) {
+        return dock;
+      }
+      const maxX = Math.max(
+        PREVIEW_MARGIN,
+        containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+      );
+      const maxY = Math.max(
+        PREVIEW_MARGIN,
+        containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
+      );
+      return {
+        left: clamp(previewPos.x, PREVIEW_MARGIN, maxX),
+        top: clamp(previewPos.y, PREVIEW_MARGIN, maxY),
+      };
+    }
+    if (!previewPos) {
+      return null;
+    }
+    const padding = 12;
+    let left = previewPos.x + padding;
+    let top = previewPos.y + padding;
+    const maxX = containerSize.width - PREVIEW_MAX - 4;
+    const maxY = containerSize.height - PREVIEW_MAX - 4;
+    if (left > maxX) {
+      left = previewPos.x - padding - PREVIEW_MAX;
+    }
+    if (top > maxY) {
+      top = previewPos.y - padding - PREVIEW_MAX;
+    }
+    left = Math.max(4, Math.min(left, maxX));
+    top = Math.max(4, Math.min(top, maxY));
+    return { left, top };
+  }, [
+    containerSize.height,
+    containerSize.width,
+    getDockPosition,
+    isCoarsePointer,
+    isPreviewDragging,
+    previewPos,
+  ]);
 
   useEffect(() => {
     const media = window.matchMedia("(pointer: coarse), (max-width: 768px)");
     const update = () => setFitScale(media.matches ? 1 : 0.9);
+    update();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsCoarsePointer(media.matches);
     update();
     if (typeof media.addEventListener === "function") {
       media.addEventListener("change", update);
@@ -326,9 +469,6 @@ export function Canvas({
     }
     return map;
   }, [pixels]);
-
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(max, Math.max(min, value));
 
   const clampTranslate = useCallback(
     (x: number, y: number, nextScale: number) => {
@@ -470,6 +610,8 @@ export function Canvas({
     baseCellSize,
     selectedColor,
     highlightedPixels,
+    moveOverlay,
+    showHoverIndicator: !movePreviewActive,
   });
 
   useEffect(() => {
@@ -480,8 +622,19 @@ export function Canvas({
       baseCellSize,
       selectedColor,
       highlightedPixels,
+      moveOverlay,
+      showHoverIndicator: !movePreviewActive,
     };
-  }, [pixelMap, width, height, baseCellSize, selectedColor, highlightedPixels]);
+  }, [
+    pixelMap,
+    width,
+    height,
+    baseCellSize,
+    selectedColor,
+    highlightedPixels,
+    moveOverlay,
+    movePreviewActive,
+  ]);
 
   const scheduleRedraw = useCallback(() => {
     if (needsDrawRef.current) {
@@ -515,6 +668,8 @@ export function Canvas({
         canvas.width / dpr,
         canvas.height / dpr,
         d.highlightedPixels,
+        d.moveOverlay,
+        d.showHoverIndicator,
       );
     });
   }, []);
@@ -545,11 +700,15 @@ export function Canvas({
     translate,
     scale,
     highlightedPixels,
+    moveOverlay,
     scheduleRedraw,
   ]);
 
   useEffect(() => {
-    if (!highlightedPixels || highlightedPixels.size === 0) {
+    if (
+      (!highlightedPixels || highlightedPixels.size === 0) &&
+      (!moveOverlay || moveOverlay.map.size === 0)
+    ) {
       return;
     }
     let animId = 0;
@@ -559,14 +718,27 @@ export function Canvas({
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [highlightedPixels, scheduleRedraw]);
+  }, [highlightedPixels, moveOverlay, scheduleRedraw]);
 
   useEffect(() => {
     return () => {
       cancelAnimationFrame(rafRef.current);
       needsDrawRef.current = false;
+      if (previewRafRef.current) {
+        cancelAnimationFrame(previewRafRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!movePreviewActive || !movePreviewPixels || movePreviewPixels.length === 0) {
+      setPreviewPos(null);
+      setPreviewCell(null);
+      setIsPreviewDragging(false);
+      dragOffsetRef.current = null;
+      dragPointerIdRef.current = null;
+    }
+  }, [movePreviewActive, movePreviewPixels]);
 
   useEffect(() => {
     if (!containerSize.width || !containerSize.height) {
@@ -608,6 +780,36 @@ export function Canvas({
     return () => container.removeEventListener("wheel", handleWheel);
   }, [zoomTo]);
 
+  const updatePreviewCell = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const cell = hitTest(
+        clientX,
+        clientY,
+        rect,
+        translateRef.current,
+        scaleRef.current,
+        baseCellSize,
+        CELL_GAP,
+        width,
+        height,
+      );
+      setPreviewCell((prev) => {
+        if (!cell) {
+          return prev ? null : prev;
+        }
+        if (prev && prev.x === cell.x && prev.y === cell.y) {
+          return prev;
+        }
+        return cell;
+      });
+    },
+    [baseCellSize, height, width],
+  );
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== undefined && event.button !== 0) {
       return;
@@ -617,6 +819,10 @@ export function Canvas({
     pointers.set(event.pointerId, pointer);
 
     clickOriginRef.current = { x: event.clientX, y: event.clientY };
+
+    if (movePreviewActive && !isCoarsePointer) {
+      updatePreviewCell(event.clientX, event.clientY);
+    }
 
     const allowSwipe =
       event.pointerType === "touch" &&
@@ -662,7 +868,7 @@ export function Canvas({
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const pointers = pointersRef.current;
 
-    if (event.pointerType !== "touch") {
+    if (event.pointerType !== "touch" || (movePreviewActive && !isCoarsePointer)) {
       const rect = containerRef.current?.getBoundingClientRect();
       if (rect) {
         const cell = hitTest(
@@ -676,10 +882,27 @@ export function Canvas({
           width,
           height,
         );
+        if (movePreviewActive) {
+          updatePreviewCell(event.clientX, event.clientY);
+        }
         hoverPointerRef.current = {
           x: event.clientX - rect.left,
           y: event.clientY - rect.top,
         };
+        if (
+          movePreviewActive &&
+          movePreviewPixels &&
+          movePreviewPixels.length > 0 &&
+          !isCoarsePointer
+        ) {
+          const nextPos = hoverPointerRef.current;
+          if (!previewRafRef.current) {
+            previewRafRef.current = requestAnimationFrame(() => {
+              previewRafRef.current = null;
+              setPreviewPos(nextPos);
+            });
+          }
+        }
         const prev = hoveredCellRef.current;
         if (cell?.x !== prev?.x || cell?.y !== prev?.y) {
           hoveredCellRef.current = cell;
@@ -790,8 +1013,16 @@ export function Canvas({
       allowSwipeRef.current = false;
     }
 
+    if (movePreviewActive && !isCoarsePointer) {
+      updatePreviewCell(event.clientX, event.clientY);
+    }
+
     const origin = clickOriginRef.current;
     if (origin && !edgeSwipeTriggeredRef.current && !pinchRef.current) {
+      if (movePreviewActive && isCoarsePointer) {
+        clickOriginRef.current = null;
+        return;
+      }
       const dist = Math.hypot(
         event.clientX - origin.x,
         event.clientY - origin.y,
@@ -838,8 +1069,105 @@ export function Canvas({
     if (hoveredCellRef.current) {
       hoveredCellRef.current = null;
       hoverPointerRef.current = null;
+      if (!isCoarsePointer) {
+        setPreviewPos(null);
+      }
+      setPreviewCell(null);
       scheduleRedraw();
     }
+  };
+
+  const handlePreviewPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer || !movePreviewActive) {
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    dragPointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsPreviewDragging(true);
+    const dock = getDockPosition();
+    if (!previewPos) {
+      setPreviewPos({ x: dock.left, y: dock.top });
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    dragOffsetRef.current = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    updatePreviewCell(event.clientX, event.clientY);
+  };
+
+  const handlePreviewPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer) {
+      return;
+    }
+    if (dragPointerIdRef.current !== event.pointerId || !isPreviewDragging) {
+      event.stopPropagation();
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect || !dragOffsetRef.current) {
+      return;
+    }
+    const maxX = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    const maxY = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    const nextLeft =
+      event.clientX - containerRect.left - dragOffsetRef.current.x;
+    const nextTop = event.clientY - containerRect.top - dragOffsetRef.current.y;
+    setPreviewPos({
+      x: clamp(nextLeft, PREVIEW_MARGIN, maxX),
+      y: clamp(nextTop, PREVIEW_MARGIN, maxY),
+    });
+    updatePreviewCell(event.clientX, event.clientY);
+  };
+
+  const handlePreviewPointerUp = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer) {
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    if (dragPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+    dragPointerIdRef.current = null;
+    dragOffsetRef.current = null;
+    setIsPreviewDragging(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const cell = hitTest(
+        event.clientX,
+        event.clientY,
+        rect,
+        translateRef.current,
+        scaleRef.current,
+        baseCellSize,
+        CELL_GAP,
+        width,
+        height,
+      );
+      if (cell) {
+        setPreviewCell(cell);
+        onPixelClick(cell.x, cell.y);
+      }
+    }
+    setPreviewPos(null);
   };
 
   return (
@@ -850,7 +1178,15 @@ export function Canvas({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onMouseLeave={handleMouseLeave}
-      className={`relative h-full w-full overflow-hidden select-none touch-none ${isInteracting ? "cursor-grabbing" : "cursor-pointer"} ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
+      className={`relative h-full w-full overflow-hidden select-none touch-none ${
+        movePreviewActive
+          ? isInteracting
+            ? "cursor-grabbing"
+            : "cursor-crosshair"
+          : isInteracting
+            ? "cursor-grabbing"
+            : "cursor-pointer"
+      } ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
       <div
         className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-full border border-black/10 bg-background/60 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-white/10"
@@ -899,6 +1235,26 @@ export function Canvas({
           pointerEvents: "none",
         }}
       />
+      {isCoarsePointer &&
+        movePreviewActive &&
+        movePreviewPixels &&
+        movePreviewPixels.length > 0 &&
+        previewStyle && (
+          <div
+            className={`absolute ${
+              isCoarsePointer ? "pointer-events-auto" : "pointer-events-none"
+            } ${isPreviewDragging ? "opacity-0" : "opacity-100"}`}
+            style={previewStyle}
+            onPointerDown={handlePreviewPointerDown}
+            onPointerMove={handlePreviewPointerMove}
+            onPointerUp={handlePreviewPointerUp}
+            onPointerCancel={handlePreviewPointerUp}
+          >
+            <div className="rounded-2xl bg-background/90 p-2 shadow-lg backdrop-blur">
+              <PixelPreview pixels={previewPixels} maxSize={PREVIEW_MAX} />
+            </div>
+          </div>
+        )}
     </div>
   );
 }
