@@ -29,6 +29,10 @@ const CHAT_COLORS = [
   "#f472b6",
 ];
 
+function rewardSourceLabel(source?: string): string {
+  return source === "btcpay" ? "BTCPay" : "Startovač";
+}
+
 function normalizeMessage(text: string): string {
   return text.normalize("NFKC").replace(/\s+/g, " ").trim();
 }
@@ -187,9 +191,9 @@ export const updateProfile = mutation({
           await ctx.db.patch(message._id, {
             rewardDisplayName: displayName,
             rewardDisplayEmail: displayEmail,
-            text: `${displayName} podpořil projekt ${Math.round(
+            text: `${displayName} podpořil(a) projekt ${Math.round(
               message.rewardAmountCzk ?? 0,
-            )} Kč přes Startovač a získal ${
+            )} Kč přes ${rewardSourceLabel(message.rewardSource)} a získal(a) ${
               message.rewardCreditsDelta ?? 0
             } kreditů.`,
           });

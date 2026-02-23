@@ -4,10 +4,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Redo2, Undo2 } from "lucide-react";
+import { Check, Coins, Move, Play, Redo2, Trash2, Undo2, X } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
-const LOGO_SQUARES = ["var(--logo-primary)", "#7F7F7F", "#FFD400", "#F7931A"];
 
 type CanvasPageLayoutProps = {
   children: ReactNode;
@@ -32,6 +31,13 @@ type CanvasPageLayoutProps = {
   canRedo: boolean;
   canCommit: boolean;
   isCommitting?: boolean;
+  onClearPending: () => void;
+  canClear: boolean;
+  onMove?: () => void;
+  canMove?: boolean;
+  moveActive?: boolean;
+  showMoveHint?: boolean;
+  onDismissMoveHint?: () => void;
   replayCanvasId?: string;
 };
 
@@ -58,6 +64,13 @@ export function CanvasPageLayout({
   canRedo,
   canCommit,
   isCommitting = false,
+  onClearPending,
+  canClear,
+  onMove,
+  canMove = false,
+  moveActive = false,
+  showMoveHint = false,
+  onDismissMoveHint,
   replayCanvasId,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
@@ -96,8 +109,9 @@ export function CanvasPageLayout({
             {replayCanvasId && (
               <Link
                 href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}
-                className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
+                className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition hover:text-foreground"
               >
+                <Play className="h-3 w-3" />
                 Replay
               </Link>
             )}
@@ -143,7 +157,7 @@ export function CanvasPageLayout({
 
         {/* Mobile: nav + credits bar */}
         <div className="mx-auto flex w-full max-w-6xl items-center border-t px-4 py-1.5 md:hidden">
-          <div className="flex flex-1 items-center justify-center gap-4">
+          <div className="flex flex-1 items-center justify-start gap-3">
             <button
               type="button"
               onClick={onHowItWorks}
@@ -154,8 +168,9 @@ export function CanvasPageLayout({
             {replayCanvasId && (
               <Link
                 href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}
-                className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
+                className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition hover:text-foreground"
               >
+                <Play className="h-3 w-3" />
                 Replay
               </Link>
             )}
@@ -181,7 +196,7 @@ export function CanvasPageLayout({
 
       </header>
 
-      <main className="flex-1 min-h-0 overflow-hidden">
+      <main data-tutorial="canvas" className="flex-1 min-h-0 overflow-hidden">
         {Children.toArray(children).map((child, index) => (
           <section
             key={`canvas-section-${index}`}
@@ -196,12 +211,14 @@ export function CanvasPageLayout({
         <>
           <footer className="shrink-0 border-t bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
             <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-2 px-2 text-xs sm:h-16 sm:gap-3 sm:px-4">
-              <ColorPicker
-                colors={colors}
-                selectedColor={selectedColor}
-                onSelectColor={onSelectColor}
-                enforceColors={enforceColors}
-              />
+              <div data-tutorial="color-picker" className="min-w-0 flex-1">
+                <ColorPicker
+                  colors={colors}
+                  selectedColor={selectedColor}
+                  onSelectColor={onSelectColor}
+                  enforceColors={enforceColors}
+                />
+              </div>
 
               <div className="flex items-center gap-1 shrink-0 sm:gap-2">
                 {showInlineBubble && (
@@ -236,9 +253,30 @@ export function CanvasPageLayout({
                 </button>
                 <button
                   type="button"
+                  onClick={onClearPending}
+                  disabled={!canClear}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9"
+                  aria-label="Smazat návrh"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                {onMove && (
+                  <button
+                    type="button"
+                    onClick={onMove}
+                    disabled={!canMove}
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9 ${moveActive ? "bg-foreground/10 text-foreground" : ""}`}
+                    aria-label="Přesunout návrh"
+                  >
+                    <Move className="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  type="button"
                   onClick={onCommit}
                   disabled={!canCommit || isCommitting}
                   aria-label="Zakreslit"
+                  data-tutorial="commit"
                   className="inline-flex h-8 items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50 sm:h-9 sm:px-4 sm:text-sm"
                 >
                   <Check className="h-4 w-4 sm:hidden" />
@@ -261,6 +299,38 @@ export function CanvasPageLayout({
               </span>
             </div>
           </div>
+          {showMoveHint && (
+            <div className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 sm:bottom-[6.5rem]">
+              <div className="pointer-events-auto flex max-w-sm items-start gap-2 rounded-2xl border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+                <span>
+                  Cena pixelu se zdražila během tvé editace, zvaž přesunutí pomocí
+                  nástroje{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onMove?.();
+                      onDismissMoveHint?.();
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-black/10 bg-background/80 px-2 py-0.5 text-[11px] font-semibold text-foreground transition hover:text-foreground dark:border-white/10"
+                  >
+                    <Move className="h-3 w-3" />
+                    Move tool
+                  </button>
+                  .
+                </span>
+                {onDismissMoveHint && (
+                  <button
+                    type="button"
+                    onClick={onDismissMoveHint}
+                    className="mt-0.5 rounded-full p-1 text-muted-foreground transition hover:text-foreground"
+                    aria-label="Zavřít"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

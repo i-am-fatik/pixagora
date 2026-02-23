@@ -1,6 +1,8 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Bitcoin, ExternalLink, X } from "lucide-react";
+import { StartovacLogo } from "./StartovacLogo";
+import { UrzaLogo } from "./UrzaLogo";
 
 type HowItWorksModalProps = {
   open: boolean;
@@ -17,11 +19,16 @@ export function HowItWorksModal({
     return null;
   }
 
+  const badgeClass =
+    "inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-foreground/90 transition hover:text-foreground";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
       }}
     >
       <div
@@ -52,17 +59,20 @@ export function HowItWorksModal({
               href="https://www.startovac.cz/projects/anarchoagorismus"
               target="_blank"
               rel="noopener noreferrer"
-              className="font-bold text-foreground hover:underline"
+              className={badgeClass}
             >
+              <StartovacLogo className="h-3.5 w-auto" />
               Startovači
+              <ExternalLink className="h-3 w-3" />
             </a>{" "}
             nebo přes{" "}
             <button
               type="button"
               onClick={onOpenBtcPay}
-              className="font-bold text-foreground hover:underline"
+              className={`${badgeClass} text-muted-foreground`}
             >
-              Bitcoin
+              <Bitcoin className="h-3 w-3 text-amber-400" />
+              BTCPay
             </button>
             .
           </p>
@@ -81,18 +91,22 @@ export function HowItWorksModal({
               href="https://kniha.urza.cz"
               target="_blank"
               rel="noopener noreferrer"
-              className="font-bold text-foreground hover:underline"
+              className={badgeClass}
             >
+              <UrzaLogo className="h-3.5 w-3.5" />
               kniha.urza.cz
+              <ExternalLink className="h-3 w-3" />
             </a>{" "}
             a na{" "}
             <a
               href="https://www.startovac.cz/projects/anarchoagorismus"
               target="_blank"
               rel="noopener noreferrer"
-              className="font-bold text-foreground hover:underline"
+              className={badgeClass}
             >
+              <StartovacLogo className="h-3.5 w-auto" />
               Startovači
+              <ExternalLink className="h-3 w-3" />
             </a>
             .
           </p>

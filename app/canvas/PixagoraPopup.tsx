@@ -72,7 +72,9 @@ export function PixagoraPopup({ open, onClose, mode, onOpenBtcPay }: PixagoraPop
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
       }}
     >
       <div
@@ -96,7 +98,7 @@ export function PixagoraPopup({ open, onClose, mode, onOpenBtcPay }: PixagoraPop
 
             {mode === "anonymous" && (
               <p className="text-sm text-muted-foreground">
-                PixAgora je společné plátno které bude otištěné v knize. Podpoř projekt a získej kredity na
+                PixAgora je společné plátno, které bude otištěné v knize. Podpoř projekt a získej kredity na
                 malování.
               </p>
             )}
