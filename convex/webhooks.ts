@@ -2,9 +2,12 @@ import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { findOrCreateUser } from "./credits";
 
-const REWARD_CREDITS: Record<string, number> = {
-  Podporovatel: 50,
-  // TODO: Doplnit kompletní mapping reward -> credits.
+const STARTOVAC_REWARDS: Record<
+  string,
+  { basePrice: number; credits: number }
+> = {
+  maly_kreslir: { basePrice: 69, credits: 11 },
+  velky_kreslir: { basePrice: 666, credits: 169 },
 };
 
 const FALLBACK_CZK_PER_CREDIT = 30;
@@ -16,10 +19,30 @@ function rewardSourceLabel(source: string): string {
   return "Startovač";
 }
 
-function creditsForReward(reward: string, amountCzk: number): number {
-  const mapped = REWARD_CREDITS[reward];
-  if (typeof mapped === "number") {
-    return mapped;
+function normalizeRewardKey(reward: string): string {
+  return reward
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, "_");
+}
+
+function creditsForReward(
+  source: string,
+  reward: string,
+  amountCzk: number,
+): number | null {
+  if (source === "startovac") {
+    const config = STARTOVAC_REWARDS[normalizeRewardKey(reward)];
+    if (!config) {
+      return null;
+    }
+    if (amountCzk > config.basePrice) {
+      return Math.floor(amountCzk / (config.basePrice / config.credits));
+    }
+    return config.credits;
   }
   return Math.floor(amountCzk / FALLBACK_CZK_PER_CREDIT);
 }
@@ -48,8 +71,24 @@ export const processPayment = internalMutation({
       };
     }
 
+    const creditsDelta = creditsForReward(
+      args.source,
+      args.reward,
+      args.amountCzk,
+    );
+    if (creditsDelta === null) {
+      console.warn("skipping payment:", {
+        source: args.source,
+        trxId: args.trxId,
+        email: args.email,
+        amountCzk: args.amountCzk,
+        reward: args.reward,
+        purchasedAt: args.purchasedAt,
+      });
+      return { status: "skipped" as const };
+    }
+
     const user = await findOrCreateUser(ctx, args.email);
-    const creditsDelta = creditsForReward(args.reward, args.amountCzk);
 
     await ctx.db.insert("payments", {
       userId: user._id,
