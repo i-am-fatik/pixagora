@@ -1,8 +1,6 @@
 "use client";
 
-import { Bitcoin, ExternalLink, X } from "lucide-react";
-import { StartovacLogo } from "./StartovacLogo";
-import { UrzaLogo } from "./UrzaLogo";
+import { X } from "lucide-react";
 
 type HowItWorksModalProps = {
   open: boolean;
@@ -20,7 +18,7 @@ export function HowItWorksModal({
   }
 
   const badgeClass =
-    "inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-foreground/90 transition hover:text-foreground";
+    "font-semibold text-foreground/90 transition hover:text-foreground underline";
 
   return (
     <div
@@ -54,61 +52,66 @@ export function HowItWorksModal({
             plátno, kde každý pixel má svou cenu.
           </p>
           <p>
-            Kredity získáš podpořením projektu na{" "}
+            Kredity získáte podpořením projektu na{" "}
             <a
               href="https://www.startovac.cz/projects/anarchoagorismus"
               target="_blank"
-              rel="noopener noreferrer"
               className={badgeClass}
             >
-              <StartovacLogo className="h-3.5 w-auto" />
               Startovači
-              <ExternalLink className="h-3 w-3" />
             </a>{" "}
-            nebo přes{" "}
+            (kartou nebo převodem) nebo přes{" "}
             <button
               type="button"
               onClick={onOpenBtcPay}
-              className={`${badgeClass} text-muted-foreground`}
+              className={badgeClass}
             >
-              <Bitcoin className="h-3 w-3 text-amber-400" />
-              BTCPay
+              BTCPay (Bitcoin on-chain i lightning)
             </button>
             .
           </p>
           <p>
             Základní cena pixelu je{" "}
             <strong className="text-foreground">1 kredit</strong>.
-          </p>
-          <p>
             Přemalování cizího pixelu stojí{" "}
             <strong className="text-foreground">2× tolik</strong>, co zaplatil
-            předchozí autor.
+            předchozí autor a je potřeba nakoupit kredity alespoň za 666 Kč.
+          </p>
+          <p>
+            Po nákupu na Startovači může trvat až 5 minut než se kredity připíšou.
+            Při nákupu bitcoinem se připíší hned po potvrzení transakce.
+          </p>
+          <p>
+            Negarantujeme tisknutelnost, je možné že to na papíru v knize bude vypadat jinak než se zdá tady.
+            Neslibujeme jak budou vypadat další stránky ani kdy a jestli je otevřeme, protože to záleží na spoustě okolnostech které teď nejdou předvídat.
           </p>
           <p>
             Více informací o kampani získáš na{" "}
             <a
               href="https://kniha.urza.cz"
               target="_blank"
-              rel="noopener noreferrer"
               className={badgeClass}
             >
-              <UrzaLogo className="h-3.5 w-3.5" />
               kniha.urza.cz
-              <ExternalLink className="h-3 w-3" />
             </a>{" "}
             a na{" "}
             <a
               href="https://www.startovac.cz/projects/anarchoagorismus"
               target="_blank"
-              rel="noopener noreferrer"
               className={badgeClass}
             >
-              <StartovacLogo className="h-3.5 w-auto" />
               Startovači
-              <ExternalLink className="h-3 w-3" />
             </a>
             .
+          </p>
+          <p>
+            Aplikaci vytvořili{" "}
+            <a href="https://x.com/honzapoboril/" target="_blank" className={badgeClass}>Honza Pobořil</a>,
+            ,
+            a
+          </p>
+          <p>
+            Tvořte s ♥️ a ohleduplností.
           </p>
         </div>
       </div>
