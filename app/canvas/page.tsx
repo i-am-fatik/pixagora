@@ -23,9 +23,11 @@ import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 
 type PendingChange = {
-  key: string;
+  key?: string;
   prevPending?: string;
   nextPending?: string;
+  prevState?: Record<string, string>;
+  nextState?: Record<string, string>;
 };
 
 type PendingState = {
@@ -36,6 +38,7 @@ type PendingState = {
 
 type PendingAction =
   | { type: "apply"; key: string; nextPending?: string }
+  | { type: "replace"; nextPending: Record<string, string> }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "reset" }
@@ -72,16 +75,36 @@ function pendingReducer(
         redo: [],
       };
     }
+    case "replace": {
+      const prevState = { ...state.pending };
+      return {
+        pending: { ...action.nextPending },
+        history: [
+          ...state.history,
+          { prevState, nextState: { ...action.nextPending } },
+        ],
+        redo: [],
+      };
+    }
     case "undo": {
       const last = state.history[state.history.length - 1];
       if (!last) {
         return state;
       }
+      if (last.prevState && last.nextState) {
+        return {
+          pending: { ...last.prevState },
+          history: state.history.slice(0, -1),
+          redo: [...state.redo, last],
+        };
+      }
       const nextPendingMap = { ...state.pending };
-      if (last.prevPending === undefined) {
-        delete nextPendingMap[last.key];
-      } else {
-        nextPendingMap[last.key] = last.prevPending;
+      if (last.key) {
+        if (last.prevPending === undefined) {
+          delete nextPendingMap[last.key];
+        } else {
+          nextPendingMap[last.key] = last.prevPending;
+        }
       }
       return {
         pending: nextPendingMap,
@@ -94,11 +117,20 @@ function pendingReducer(
       if (!last) {
         return state;
       }
+      if (last.prevState && last.nextState) {
+        return {
+          pending: { ...last.nextState },
+          history: [...state.history, last],
+          redo: state.redo.slice(0, -1),
+        };
+      }
       const nextPendingMap = { ...state.pending };
-      if (last.nextPending === undefined) {
-        delete nextPendingMap[last.key];
-      } else {
-        nextPendingMap[last.key] = last.nextPending;
+      if (last.key) {
+        if (last.nextPending === undefined) {
+          delete nextPendingMap[last.key];
+        } else {
+          nextPendingMap[last.key] = last.nextPending;
+        }
       }
       return {
         pending: nextPendingMap,
@@ -494,6 +526,24 @@ export default function CanvasPage() {
     [confirmOpen, effectivePending],
   );
 
+  const canUndo = pendingState.history.length > 0 || pendingCount > 0;
+  const canRedo = pendingState.redo.length > 0;
+  const canClear = pendingCount > 0;
+
+  const handleUndo = () => {
+    if (pendingState.history.length > 0) {
+      dispatch({ type: "undo" });
+    } else if (pendingCount > 0) {
+      dispatch({ type: "reset" });
+    }
+  };
+
+  const handleRedo = () => {
+    if (pendingState.redo.length > 0) {
+      dispatch({ type: "redo" });
+    }
+  };
+
   const handleOpenConfirm = () => {
     if (!isAuthenticated) {
       handleOpenAnonymousPopup();
@@ -544,10 +594,7 @@ export default function CanvasPage() {
       if (hasOutOfBounds) {
         return;
       }
-      dispatch({
-        type: "load",
-        state: { pending: nextPending, history: [], redo: [] },
-      });
+      dispatch({ type: "replace", nextPending });
       setMoveDraft(null);
       return;
     }
@@ -678,15 +725,15 @@ export default function CanvasPage() {
         onSelectColor={setSelectedColor}
         changedCount={pendingCount}
         totalCost={totalCost}
-        onUndo={() => dispatch({ type: "undo" })}
-        onRedo={() => dispatch({ type: "redo" })}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
         onCommit={handleOpenConfirm}
-        canUndo={pendingState.history.length > 0}
-        canRedo={pendingState.redo.length > 0}
+        canUndo={canUndo}
+        canRedo={canRedo}
         canCommit={pendingCount > 0 && !!canvasId && !moveDraft}
         isCommitting={isCommitting}
         onClearPending={handleOpenClearConfirm}
-        canClear={pendingState.history.length > 0}
+        canClear={canClear}
         onMove={handleToggleMove}
         canMove={pendingCount > 0}
         moveActive={!!moveDraft}
