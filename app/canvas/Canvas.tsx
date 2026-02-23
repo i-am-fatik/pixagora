@@ -266,7 +266,6 @@ export function Canvas({
   const [previewCell, setPreviewCell] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const previewDock = "right" as const;
   const previewRafRef = useRef<number | null>(null);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
   const [isPreviewDragging, setIsPreviewDragging] = useState(false);
@@ -337,15 +336,12 @@ export function Canvas({
       PREVIEW_MARGIN,
       Math.min(72, containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN),
     );
-    const dockLeft =
-      previewDock === "left"
-        ? PREVIEW_MARGIN
-        : Math.max(
-            PREVIEW_MARGIN,
-            containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
-          );
+    const dockLeft = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
     return { left: dockLeft, top: dockTop };
-  }, [containerSize.height, containerSize.width, previewDock]);
+  }, [containerSize.height, containerSize.width]);
 
   const previewStyle = useMemo(() => {
     if (isCoarsePointer) {
