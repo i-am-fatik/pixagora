@@ -35,6 +35,17 @@ export async function computeCredits(
   return earned - spent;
 }
 
+export async function computeTotalPaidCzk(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<number> {
+  const payments = await ctx.db
+    .query("payments")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  return payments.reduce((sum, p) => sum + (p.amountCzk ?? 0), 0);
+}
+
 export async function findOrCreateUser(
   ctx: MutationCtx,
   rawEmail: string,

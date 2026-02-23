@@ -2,7 +2,7 @@ import { query, mutation, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { nextPixelPrice } from "./pricing";
-import { computeCredits } from "./credits";
+import { computeCredits, computeTotalPaidCzk } from "./credits";
 
 const MAX_BATCH_SIZE = 500;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -116,6 +116,7 @@ export const commit = mutation({
       color: string;
       price: number;
       existingId?: Id<"pixels">;
+      existingUserId?: Id<"users">;
       previousColor?: string;
     }[] = [];
 
@@ -158,6 +159,7 @@ export const commit = mutation({
         ...px,
         price,
         existingId: existing?._id,
+        existingUserId: existing?.userId,
         previousColor: existing?.color,
       });
     }
@@ -165,6 +167,20 @@ export const commit = mutation({
     if (pixelDetails.length === 0) {
       const balance = await computeCredits(ctx, user._id);
       return { totalCost: 0, remaining: balance };
+    }
+
+    const needsOverwriteAccess = pixelDetails.some(
+      (px) => px.existingUserId && px.existingUserId !== user._id,
+    );
+    if (needsOverwriteAccess) {
+      const totalPaidCzk = await computeTotalPaidCzk(ctx, user._id);
+      if (totalPaidCzk < 666) {
+        return {
+          error: "OVERWRITE_LOCKED" as const,
+          requiredCzk: 666,
+          totalPaidCzk,
+        };
+      }
     }
 
     if (expectedCost !== undefined && totalCost !== expectedCost) {
