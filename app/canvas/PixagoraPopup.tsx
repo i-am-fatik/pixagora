@@ -96,7 +96,7 @@ export function PixagoraPopup({ open, onClose, mode, onOpenBtcPay }: PixagoraPop
 
             {mode === "anonymous" && (
               <p className="text-sm text-muted-foreground">
-                Pixagora je společné plátno které bude otištěné v knize. Podpoř projekt a získej kredity na
+                PixAgora je společné plátno které bude otištěné v knize. Podpoř projekt a získej kredity na
                 malování.
               </p>
             )}

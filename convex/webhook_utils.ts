@@ -222,7 +222,7 @@ export async function sendStartovacTokenEmail(params: {
 
   const brandName =
     process.env.PIXAGORA_EMAIL_BRAND_NAME ?? "Svobodný přístav";
-  const productName = process.env.PIXAGORA_EMAIL_PRODUCT_NAME ?? "Pixagora";
+  const productName = process.env.PIXAGORA_EMAIL_PRODUCT_NAME ?? "PixAgora";
   const logoUrl = process.env.PIXAGORA_EMAIL_LOGO_URL;
   const logoAlt = process.env.PIXAGORA_EMAIL_LOGO_ALT ?? brandName;
   const appUrl = process.env.PIXAGORA_APP_URL;
@@ -383,7 +383,7 @@ export async function sendMagicLinkEmail(params: {
 
   const brandName =
     process.env.PIXAGORA_EMAIL_BRAND_NAME ?? "Svobodný přístav";
-  const productName = process.env.PIXAGORA_EMAIL_PRODUCT_NAME ?? "Pixagora";
+  const productName = process.env.PIXAGORA_EMAIL_PRODUCT_NAME ?? "PixAgora";
   const logoUrl = process.env.PIXAGORA_EMAIL_LOGO_URL;
   const logoAlt = process.env.PIXAGORA_EMAIL_LOGO_ALT ?? brandName;
   const appUrl = process.env.PIXAGORA_APP_URL;

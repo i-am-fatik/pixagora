@@ -50,7 +50,7 @@ async function maybeCreateNextCanvas(
 
   const nextNumber = nextOrder + 1;
   await ctx.db.insert("canvases", {
-    name: `Pixagora #${nextNumber}`,
+    name: `PixAgora #${nextNumber}`,
     width: canvas.width,
     height: canvas.height,
     colors: canvas.colors,
@@ -223,7 +223,7 @@ export const commit = mutation({
       kind: "commit",
       text: `${commitActorName} zakreslil ${commitPixelCount} px.`,
       createdAt: now,
-      authorName: "Pixagora bot",
+      authorName: "PixAgora bot",
       authorColor: "#ffffff",
       commitId: transactionId,
       commitCanvasId: canvasId,

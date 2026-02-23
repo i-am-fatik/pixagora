@@ -16,10 +16,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pixagora",
+  title: "PixAgora",
   description: "Realtime pixel canvas",
-  icons: {
-    icon: "/icon.svg",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "PixAgora",
   },
 };
 

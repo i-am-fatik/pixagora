@@ -69,7 +69,7 @@ export function CanvasPageLayout({
           <div className="flex items-center gap-3">
             <Image
               src="/logo-white.svg"
-              alt="Pixagora"
+              alt="PixAgora"
               width={100}
               height={24}
               className="h-10 w-auto dark:hidden"
@@ -77,7 +77,7 @@ export function CanvasPageLayout({
             />
             <Image
               src="/logo-dark.svg"
-              alt="Pixagora"
+              alt="PixAgora"
               width={100}
               height={24}
               className="h-10 w-auto hidden dark:block"

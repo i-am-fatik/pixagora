@@ -66,7 +66,7 @@ export const processPayment = internalMutation({
         kind: "reward",
         text,
         createdAt: Date.now(),
-        authorName: "Pixagora bot",
+        authorName: "PixAgora bot",
         authorColor: "#ffffff",
         rewardSource: args.source,
         rewardAmountCzk: args.amountCzk,

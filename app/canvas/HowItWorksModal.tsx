@@ -43,7 +43,7 @@ export function HowItWorksModal({
 
         <div className="space-y-3 text-sm text-muted-foreground">
           <p>
-            <strong className="text-foreground">Pixagora</strong> je společné
+            <strong className="text-foreground">PixAgora</strong> je společné
             plátno, kde každý pixel má svou cenu.
           </p>
           <p>

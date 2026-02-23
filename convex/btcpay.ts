@@ -27,7 +27,7 @@ export const createInvoice = action({
           metadata: {
             form: {
               email: email,
-              perk: "Pixagora app",
+              perk: "PixAgora app",
             },
           },
           checkout: {

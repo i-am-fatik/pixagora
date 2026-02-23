@@ -545,7 +545,7 @@ function ChatPanel({
                 <div className="flex w-full flex-col gap-1">
                   <div className="flex items-center gap-2 text-xs">
                     <span className="bg-gradient-to-r from-pink-400 via-yellow-400 to-cyan-400 bg-clip-text font-semibold text-transparent">
-                      Pixagora bot
+                      PixAgora bot
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-sm text-foreground/90">
@@ -605,7 +605,7 @@ function ChatPanel({
                   <div className="flex-1">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="bg-gradient-to-r from-pink-400 via-yellow-400 to-cyan-400 bg-clip-text text-xs font-semibold text-transparent">
-                        Pixagora bot
+                        PixAgora bot
                       </span>
                       {showTime && (
                         <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground/60">

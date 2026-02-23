@@ -25,7 +25,7 @@ function Logo() {
           />
         ))}
       </div>
-      <span className="text-base font-semibold tracking-tight">Pixagora</span>
+      <span className="text-base font-semibold tracking-tight">PixAgora</span>
     </div>
   );
 }

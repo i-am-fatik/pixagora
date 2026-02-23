@@ -38,7 +38,7 @@ export const createCanvas = internalMutation({
     const order = existing.length;
 
     const canvasId = await ctx.db.insert("canvases", {
-      name: args.name || `Pixagora #${order + 1}`,
+      name: args.name || `PixAgora #${order + 1}`,
       width: args.width || 110,
       height: args.height || 169,
       colors: DEFAULT_COLORS,
