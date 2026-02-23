@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { ExternalLink, Image as ImageIcon, MessageCircle, Send, Settings, Smile, X } from "lucide-react";
+import {
+  Bitcoin,
+  ExternalLink,
+  Image as ImageIcon,
+  MessageCircle,
+  Send,
+  Settings,
+  Smile,
+  X,
+} from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -62,8 +71,10 @@ function formatCzk(amount: number | undefined) {
   if (typeof amount !== "number") {
     return "";
   }
-  const rounded = Math.round(amount);
-  return `${rounded} Kč`;
+  const rounded = Math.round(amount * 100) / 100;
+  let formatted = rounded.toFixed(2);
+  formatted = formatted.replace(/\.?0+$/, "");
+  return `${formatted} Kč`;
 }
 
 function formatTime(ts: number) {
@@ -202,6 +213,7 @@ function ChatPanel({
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const sendMessage = useMutation(api.chat.send);
+  const addTestBtcPayReward = useMutation(api.chat.addTestBtcPayReward);
   const profile = useQuery(
     api.chat.getProfile,
     isLoggedIn ? { token } : "skip",
@@ -477,6 +489,21 @@ function ChatPanel({
             <span className="text-sm font-semibold">Veřejný chat</span>
           </div>
           <div className="flex items-center gap-2">
+            {process.env.NODE_ENV !== "production" && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isLoggedIn) {
+                    onRequestAuth();
+                    return;
+                  }
+                  addTestBtcPayReward({ token });
+                }}
+                className="rounded-full border border-black/10 px-3 py-1 text-[11px] font-semibold text-muted-foreground transition hover:text-foreground dark:border-white/10"
+              >
+                Test BTCPay
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -566,7 +593,7 @@ function ChatPanel({
                             </span>
                           )}
                         </span>
-                        <span>zakreslil</span>
+                        <span>zakreslil(a)</span>
                         <span className="font-semibold">
                           {message.commitPixelCount ?? 0}
                         </span>
@@ -620,16 +647,22 @@ function ChatPanel({
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1 text-sm text-foreground/90">
-                      <span className="inline-flex items-baseline gap-1 font-semibold">
-                        <span>{message.rewardDisplayName ?? "Anonym"}</span>
-                        {message.rewardDisplayEmail && (
-                          <span className="text-[10px] font-normal text-muted-foreground/60">
-                            ({message.rewardDisplayEmail})
-                          </span>
-                        )}
+                  <div className="mt-1 flex flex-wrap items-center gap-1 text-sm text-foreground/90">
+                    <span className="inline-flex items-baseline gap-1 font-semibold">
+                      <span>{message.rewardDisplayName ?? "Anonym"}</span>
+                      {message.rewardDisplayEmail && (
+                        <span className="text-[10px] font-normal text-muted-foreground/60">
+                          ({message.rewardDisplayEmail})
+                        </span>
+                      )}
+                    </span>
+                    <span>podpořil(a) projekt přes</span>
+                    {message.rewardSource === "btcpay" ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <Bitcoin className="h-3 w-3 text-amber-400" />
+                        BTCPay
                       </span>
-                      <span>podpořil projekt přes</span>
+                    ) : (
                       <a
                         href={STARTOVAC_URL}
                         target="_blank"
@@ -640,6 +673,7 @@ function ChatPanel({
                         Startovač
                         <ExternalLink className="h-3 w-3" />
                       </a>
+                    )}
                       <span>částkou</span>
                       <span className="font-semibold">
                         {formatCzk(message.rewardAmountCzk)}
@@ -649,7 +683,7 @@ function ChatPanel({
                           ({message.rewardName})
                         </span>
                       )}
-                      <span>a získal</span>
+                      <span>a získal(a)</span>
                       <span className="font-semibold">
                         {message.rewardCreditsDelta ?? 0}
                       </span>

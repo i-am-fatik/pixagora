@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Redo2, Trash2, Undo2 } from "lucide-react";
+import { Check, Coins, Play, Redo2, Trash2, Undo2 } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
 
 
@@ -99,8 +99,9 @@ export function CanvasPageLayout({
             {replayCanvasId && (
               <Link
                 href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}
-                className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
+                className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition hover:text-foreground"
               >
+                <Play className="h-3 w-3" />
                 Replay
               </Link>
             )}
@@ -146,7 +147,7 @@ export function CanvasPageLayout({
 
         {/* Mobile: nav + credits bar */}
         <div className="mx-auto flex w-full max-w-6xl items-center border-t px-4 py-1.5 md:hidden">
-          <div className="flex flex-1 items-center justify-center gap-4">
+          <div className="flex flex-1 items-center justify-start gap-3">
             <button
               type="button"
               onClick={onHowItWorks}
@@ -157,8 +158,9 @@ export function CanvasPageLayout({
             {replayCanvasId && (
               <Link
                 href={{ pathname: "/canvas/replay", query: { canvasId: replayCanvasId } }}
-                className="text-sm font-medium text-muted-foreground transition hover:text-foreground"
+                className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition hover:text-foreground"
               >
+                <Play className="h-3 w-3" />
                 Replay
               </Link>
             )}

@@ -9,6 +9,13 @@ const REWARD_CREDITS: Record<string, number> = {
 
 const FALLBACK_CZK_PER_CREDIT = 30;
 
+function rewardSourceLabel(source: string): string {
+  if (source === "btcpay") {
+    return "BTCPay";
+  }
+  return "Startovač";
+}
+
 function creditsForReward(reward: string, amountCzk: number): number {
   const mapped = REWARD_CREDITS[reward];
   if (typeof mapped === "number") {
@@ -56,11 +63,11 @@ export const processPayment = internalMutation({
       purchasedAt: args.purchasedAt,
     });
 
-    if (args.source === "startovac") {
+    if (args.source === "startovac" || args.source === "btcpay") {
       const displayName = user.nickname?.trim() || "Anonym";
       const displayEmail = user.showEmail ? user.email : undefined;
       const amountLabel = Math.round(args.amountCzk);
-      const text = `${displayName} podpořil projekt ${amountLabel} Kč přes Startovač a získal ${creditsDelta} kreditů.`;
+      const text = `${displayName} podpořil(a) projekt ${amountLabel} Kč přes ${rewardSourceLabel(args.source)} a získal(a) ${creditsDelta} kreditů.`;
       await ctx.db.insert("chatMessages", {
         userId: user._id,
         kind: "reward",

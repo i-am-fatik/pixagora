@@ -29,6 +29,10 @@ const CHAT_COLORS = [
   "#f472b6",
 ];
 
+function rewardSourceLabel(source?: string): string {
+  return source === "btcpay" ? "BTCPay" : "Startovač";
+}
+
 function normalizeMessage(text: string): string {
   return text.normalize("NFKC").replace(/\s+/g, " ").trim();
 }
@@ -187,9 +191,9 @@ export const updateProfile = mutation({
           await ctx.db.patch(message._id, {
             rewardDisplayName: displayName,
             rewardDisplayEmail: displayEmail,
-            text: `${displayName} podpořil projekt ${Math.round(
+            text: `${displayName} podpořil(a) projekt ${Math.round(
               message.rewardAmountCzk ?? 0,
-            )} Kč přes Startovač a získal ${
+            )} Kč přes ${rewardSourceLabel(message.rewardSource)} a získal(a) ${
               message.rewardCreditsDelta ?? 0
             } kreditů.`,
           });
@@ -268,6 +272,39 @@ export const send = mutation({
       ...(user.nicknameColor ? {} : { nicknameColor: authorColor }),
     });
 
+    return { ok: true };
+  },
+});
+
+export const addTestBtcPayReward = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!user) {
+      return { ok: false, error: "UNAUTHORIZED" as const };
+    }
+    const displayName = displayNameForUser(user);
+    const displayEmail = user.showEmail ? user.email : undefined;
+    const amountCzk = 4444;
+    const creditsDelta = Math.floor(amountCzk / 30);
+    const text = `${displayName} podpořil(a) projekt ${amountCzk} Kč přes BTCPay a získal(a) ${creditsDelta} kreditů.`;
+    await ctx.db.insert("chatMessages", {
+      userId: user._id,
+      kind: "reward",
+      text,
+      createdAt: Date.now(),
+      authorName: "Pixagora bot",
+      authorColor: "#ffffff",
+      rewardSource: "btcpay",
+      rewardAmountCzk: amountCzk,
+      rewardCreditsDelta: creditsDelta,
+      rewardName: "BTCpay Payment",
+      rewardDisplayName: displayName,
+      rewardDisplayEmail: displayEmail,
+    });
     return { ok: true };
   },
 });

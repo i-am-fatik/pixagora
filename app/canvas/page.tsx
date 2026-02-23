@@ -767,6 +767,7 @@ export default function CanvasPage() {
 
       <BtcPayPurchase
         open={btcPayPurchaseOpen}
+        prefillEmail={user?.email}
         onClose={() => setBtcPayPurchaseOpen(false)}
       />
     </>

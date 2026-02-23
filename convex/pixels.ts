@@ -221,7 +221,7 @@ export const commit = mutation({
     await ctx.db.insert("chatMessages", {
       userId: user._id,
       kind: "commit",
-      text: `${commitActorName} zakreslil ${commitPixelCount} px.`,
+      text: `${commitActorName} zakreslil(a) ${commitPixelCount} px.`,
       createdAt: now,
       authorName: "Pixagora bot",
       authorColor: "#ffffff",
