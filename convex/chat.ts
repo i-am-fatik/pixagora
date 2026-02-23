@@ -275,36 +275,3 @@ export const send = mutation({
     return { ok: true };
   },
 });
-
-export const addTestBtcPayReward = mutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_token", (q) => q.eq("token", token))
-      .unique();
-    if (!user) {
-      return { ok: false, error: "UNAUTHORIZED" as const };
-    }
-    const displayName = displayNameForUser(user);
-    const displayEmail = user.showEmail ? user.email : undefined;
-    const amountCzk = 4444;
-    const creditsDelta = Math.floor(amountCzk / 30);
-    const text = `${displayName} podpořil(a) projekt ${amountCzk} Kč přes BTCPay a získal(a) ${creditsDelta} kreditů.`;
-    await ctx.db.insert("chatMessages", {
-      userId: user._id,
-      kind: "reward",
-      text,
-      createdAt: Date.now(),
-      authorName: "Pixagora bot",
-      authorColor: "#ffffff",
-      rewardSource: "btcpay",
-      rewardAmountCzk: amountCzk,
-      rewardCreditsDelta: creditsDelta,
-      rewardName: "BTCpay Payment",
-      rewardDisplayName: displayName,
-      rewardDisplayEmail: displayEmail,
-    });
-    return { ok: true };
-  },
-});

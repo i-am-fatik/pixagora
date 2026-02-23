@@ -213,7 +213,6 @@ function ChatPanel({
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const sendMessage = useMutation(api.chat.send);
-  const addTestBtcPayReward = useMutation(api.chat.addTestBtcPayReward);
   const profile = useQuery(
     api.chat.getProfile,
     isLoggedIn ? { token } : "skip",
@@ -489,21 +488,6 @@ function ChatPanel({
             <span className="text-sm font-semibold">Veřejný chat</span>
           </div>
           <div className="flex items-center gap-2">
-            {process.env.NODE_ENV !== "production" && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isLoggedIn) {
-                    onRequestAuth();
-                    return;
-                  }
-                  addTestBtcPayReward({ token });
-                }}
-                className="rounded-full border border-black/10 px-3 py-1 text-[11px] font-semibold text-muted-foreground transition hover:text-foreground dark:border-white/10"
-              >
-                Test BTCPay
-              </button>
-            )}
             <button
               type="button"
               onClick={() => {

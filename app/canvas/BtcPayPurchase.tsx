@@ -34,9 +34,21 @@ export function BtcPayPurchase({
   const [showOverlay, setShowOverlay] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [overlayDismissed, setOverlayDismissed] = useState(false);
+  const [scriptReady, setScriptReady] = useState(false);
   const createInvoice = useAction(api.btcpay.createInvoice);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const autoSubmittedRef = useRef(false);
+
+  const handleClose = () => {
+    setShowOverlay(false);
+    setInvoiceOpen(false);
+    setOverlayDismissed(false);
+    setIsCreating(false);
+    autoSubmittedRef.current = false;
+    setScriptReady(false);
+    window.btcpay?.hideFrame?.();
+    onClose();
+  };
 
   useEffect(() => {
     if (open) {
@@ -47,7 +59,10 @@ export function BtcPayPurchase({
         script.id = scriptId;
         script.src = `${process.env.NEXT_PUBLIC_BTCPAY_URL}/modal/btcpay.js`;
         script.async = true;
+        script.onload = () => setScriptReady(true);
         document.body.appendChild(script);
+      } else if (window.btcpay) {
+        setScriptReady(true);
       }
     }
   }, [open]);
@@ -59,12 +74,33 @@ export function BtcPayPurchase({
       setIsCreating(false);
       setOverlayDismissed(false);
       autoSubmittedRef.current = false;
+      setScriptReady(false);
       return;
     }
     if (prefillEmail) {
       setEmail(prefillEmail);
     }
   }, [open, prefillEmail]);
+
+  const waitForBtcPay = () =>
+    new Promise<boolean>((resolve) => {
+      if (window.btcpay) {
+        resolve(true);
+        return;
+      }
+      const start = Date.now();
+      const interval = window.setInterval(() => {
+        if (window.btcpay) {
+          window.clearInterval(interval);
+          resolve(true);
+          return;
+        }
+        if (Date.now() - start > 1500) {
+          window.clearInterval(interval);
+          resolve(false);
+        }
+      }, 50);
+    });
 
   const handleBtcPayEvent = (event: MessageEvent) => {
     console.log("BTCPay event:", event.data);
@@ -89,12 +125,13 @@ export function BtcPayPurchase({
         email: emailValue,
         redirectUrl: window.location.href,
       });
-      if (window.btcpay) {
+      const ready = window.btcpay ? true : await waitForBtcPay();
+      if (ready && window.btcpay) {
         setInvoiceOpen(true);
         window.btcpay.showInvoice(invoiceId);
         window.btcpay.onModalReceiveMessage(handleBtcPayEvent);
         window.btcpay.onModalWillLeave = () => {
-          onClose();
+          handleClose();
         };
       } else if (checkoutLink) {
         window.location.href = checkoutLink;
@@ -166,7 +203,7 @@ export function BtcPayPurchase({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
-          onClose();
+          handleClose();
         }
       }}
     >
@@ -189,7 +226,7 @@ export function BtcPayPurchase({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-md p-1 text-muted-foreground transition hover:text-foreground"
             aria-label="Zavřít"
           >
