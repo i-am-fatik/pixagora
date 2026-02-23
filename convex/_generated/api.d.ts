@@ -14,6 +14,7 @@ import type * as chat from "../chat.js";
 import type * as credits from "../credits.js";
 import type * as history from "../history.js";
 import type * as http from "../http.js";
+import type * as leaderboard from "../leaderboard.js";
 import type * as pixels from "../pixels.js";
 import type * as pricing from "../pricing.js";
 import type * as seed from "../seed.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   credits: typeof credits;
   history: typeof history;
   http: typeof http;
+  leaderboard: typeof leaderboard;
   pixels: typeof pixels;
   pricing: typeof pricing;
   seed: typeof seed;

@@ -17,6 +17,7 @@ import { HowItWorksModal } from "./HowItWorksModal";
 import { PixagoraPopup } from "./PixagoraPopup";
 import { BtcPayPurchase } from "./BtcPayPurchase";
 import { ChatWidget } from "./ChatWidget";
+import { LeaderboardWidget } from "./LeaderboardWidget";
 import { PixelPreview } from "./PixelPreview";
 import { Tutorial } from "./Tutorial";
 import { nextPixelPrice } from "../../convex/pricing";
@@ -821,6 +822,7 @@ export default function CanvasPage() {
         token={token}
         onRequestAuth={handleOpenAnonymousPopup}
       />
+      <LeaderboardWidget viewerId={user?._id} />
 
       <PixagoraPopup
         open={popupOpen}
