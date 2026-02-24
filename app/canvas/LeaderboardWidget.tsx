@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import { useQuery } from "convex/react";
 import { Crown, ChevronRight, Trophy, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
@@ -16,6 +17,23 @@ type LeaderboardEntry = {
 
 function formatPx(count: number) {
   return `${count} px`;
+}
+
+function formatCzk(amount: number | undefined) {
+  if (typeof amount !== "number") {
+    return "";
+  }
+  const rounded = Math.round(amount * 100) / 100;
+  let formatted = rounded.toFixed(2);
+  formatted = formatted.replace(/\.?0+$/, "");
+  return `${formatted} Kč`;
+}
+
+function formatNumber(value: number | undefined) {
+  if (typeof value !== "number") {
+    return "";
+  }
+  return new Intl.NumberFormat("cs-CZ").format(value);
 }
 
 function initials(name: string) {
@@ -83,6 +101,7 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
     api.leaderboard.getRank,
     viewerId ? { userId: viewerId } : "skip",
   );
+  const stats = useQuery(api.leaderboard.getStats, {});
   const previewLoading = preview === undefined;
   const fullLoading = open && full === undefined;
 
@@ -213,6 +232,45 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
                 <X className="h-4 w-4" />
               </button>
             </div>
+            {stats && (
+              <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                Komunita už dohromady přispěla{" "}
+                <span className="font-semibold text-foreground">
+                  {formatCzk(stats.totalCzk)}
+                </span>{" "}
+                přes{" "}
+                <span className="inline-flex items-center translate-y-[1px]">
+                  <Image
+                    src="/logo-white.svg"
+                    alt="PixAgora"
+                    width={56}
+                    height={14}
+                    className="h-3.5 w-auto dark:hidden"
+                  />
+                  <Image
+                    src="/logo-dark.svg"
+                    alt="PixAgora"
+                    width={56}
+                    height={14}
+                    className="hidden h-3.5 w-auto dark:block"
+                  />
+                </span>{" "}
+                na{" "}
+                <a
+                  href="https://kniha.urza.cz"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-foreground underline underline-offset-2 transition hover:text-foreground/80"
+                >
+                  knihu Anarchoagorismus
+                </a>{" "}
+                a vybarvila{" "}
+                <span className="font-semibold text-foreground">
+                  {formatNumber(stats.totalPx)}
+                </span>{" "}
+                pixelů.
+              </p>
+            )}
             {modalTop.length > 0 && (
               <div className="mt-4 rounded-2xl bg-gradient-to-br from-black/5 via-black/0 to-black/10 p-4 dark:from-white/10 dark:via-white/5 dark:to-white/10">
                 <div className="flex items-end justify-center gap-5">
