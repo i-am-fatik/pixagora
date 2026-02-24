@@ -6,8 +6,9 @@ export function nextPixelPrice(
 }
 
 export function calculateCredits(amountCzk: number): number {
-  if (amountCzk < 666) {
-    return Math.floor(amountCzk * (11 / 69));
+  const amountCents = Math.round(amountCzk * 100);
+  if (amountCents < 66600) {
+    return Math.floor((amountCents * 11) / 6900);
   }
-  return Math.floor(amountCzk * (169 / 666));
+  return Math.floor((amountCents * 169) / 66600);
 }
