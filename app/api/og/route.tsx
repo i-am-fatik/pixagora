@@ -53,27 +53,12 @@ function packRows(
   return rows;
 }
 
-async function loadLogo(origin: string) {
-  try {
-    const response = await fetch(`${origin}/logo-dark.svg`);
-    if (!response.ok) {
-      return null;
-    }
-    const svgText = await response.text();
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svgText)}`;
-  } catch {
-    return null;
-  }
-}
-
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
     if (!convexUrl) {
       throw new Error("Missing NEXT_PUBLIC_CONVEX_URL");
     }
-    const origin = new URL(request.url).origin;
-    const logoSrc = await loadLogo(origin);
 
     const client = new ConvexHttpClient(convexUrl);
     const canvases = await client.query(api.canvases.getAll, {});
@@ -120,21 +105,17 @@ export async function GET(request: Request) {
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {logoSrc ? (
-              <img src={logoSrc} width={260} height={56} alt="PixAgora" />
-            ) : (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  fontSize: 44,
-                  fontWeight: 700,
-                }}
-              >
-                PixAgora
-              </div>
-            )}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                fontSize: 44,
+                fontWeight: 700,
+              }}
+            >
+              PixAgora
+            </div>
             <div style={{ fontSize: 22, color: "#d4d4d4", maxWidth: 420 }}>
               Společné pixelové plátno do knihy. Kup pixely, kresli a tvoř s
               komunitou.

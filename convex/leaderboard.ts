@@ -108,24 +108,3 @@ export const getRank = query({
     };
   },
 });
-
-export const getStats = query({
-  args: {},
-  handler: async (ctx) => {
-    const payments = await ctx.db.query("payments").collect();
-    let totalCzk = 0;
-    for (const payment of payments) {
-      if (typeof payment.amountCzk === "number") {
-        totalCzk += payment.amountCzk;
-      }
-    }
-
-    const transactions = await ctx.db.query("transactions").collect();
-    let totalPx = 0;
-    for (const tx of transactions) {
-      totalPx += tx.changes.length;
-    }
-
-    return { totalCzk, totalPx };
-  },
-});
