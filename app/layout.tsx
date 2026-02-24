@@ -16,8 +16,38 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PixAgora",
-  description: "Realtime pixel canvas",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "https://pixagora.urza.cz",
+  ),
+  title: {
+    default: "PixAgora",
+    template: "%s | PixAgora",
+  },
+  description:
+    "Společné pixelové plátno do knihy. Kup pixely, kresli a tvoř s komunitou.",
+  openGraph: {
+    type: "website",
+    siteName: "PixAgora",
+    title: "PixAgora",
+    description:
+      "Společné pixelové plátno do knihy. Kup pixely, kresli a tvoř s komunitou.",
+    url: "/canvas",
+    images: [
+      {
+        url: "/api/og",
+        width: 1200,
+        height: 630,
+        alt: "PixAgora",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PixAgora",
+    description:
+      "Společné pixelové plátno do knihy. Kup pixely, kresli a tvoř s komunitou.",
+    images: ["/api/og"],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
