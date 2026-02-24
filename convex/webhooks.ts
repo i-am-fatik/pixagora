@@ -6,8 +6,8 @@ const STARTOVAC_REWARDS: Record<
   string,
   { basePrice: number; credits: number }
 > = {
-  maly_kreslir: { basePrice: 69, credits: 11 },
-  velky_kreslir: { basePrice: 666, credits: 169 },
+  maly_pixagorista: { basePrice: 69, credits: 11 },
+  velky_pixagorista: { basePrice: 666, credits: 169 },
 };
 
 const FALLBACK_CZK_PER_CREDIT = 30;
