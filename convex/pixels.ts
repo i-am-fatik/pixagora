@@ -172,11 +172,20 @@ export const commit = mutation({
       return { totalCost: 0, remaining: balance };
     }
 
+    const totalPaidCzk = await computeTotalPaidCzk(ctx, user._id);
+
+    if (totalPaidCzk < 69) {
+      return {
+        error: "MIN_PAYMENT_REQUIRED" as const,
+        requiredCzk: 69,
+        totalPaidCzk,
+      };
+    }
+
     const needsOverwriteAccess = pixelDetails.some(
       (px) => px.existingUserId && px.existingUserId !== user._id,
     );
     if (needsOverwriteAccess) {
-      const totalPaidCzk = await computeTotalPaidCzk(ctx, user._id);
       if (totalPaidCzk < 666) {
         return {
           error: "OVERWRITE_LOCKED" as const,

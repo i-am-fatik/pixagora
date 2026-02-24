@@ -217,6 +217,7 @@ export default function CanvasPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [overwriteBlockedOpen, setOverwriteBlockedOpen] = useState(false);
+  const [minPaymentBlockedOpen, setMinPaymentBlockedOpen] = useState(false);
   const [initialCost, setInitialCost] = useState(0);
   const [initialPendingCount, setInitialPendingCount] = useState(0);
   const [moveDraft, setMoveDraft] = useState<{
@@ -756,6 +757,9 @@ export default function CanvasPage() {
         if (result.error === "NOT_ENOUGH_CREDITS") {
           setConfirmOpen(false);
           handleOpenBuyCredits();
+        } else if (result.error === "MIN_PAYMENT_REQUIRED") {
+          setConfirmOpen(false);
+          setMinPaymentBlockedOpen(true);
         } else if (result.error === "OVERWRITE_LOCKED") {
           setConfirmOpen(false);
           setOverwriteBlockedOpen(true);
@@ -918,6 +922,56 @@ export default function CanvasPage() {
           setBtcPayPurchaseOpen(true);
         }}
       />
+
+      {minPaymentBlockedOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
+          >
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold">Minimum pro kreslení je 69 Kč</h2>
+              <p className="text-sm text-muted-foreground">
+                Aby bylo možné kreslit, je potřeba podpořit projekt
+                částkou alespoň <strong>69 Kč</strong>. Dobij si kredity
+                pomocí tlačítek níže.
+              </p>
+            </div>
+            <div className="border-t pt-3">
+              <div className="flex flex-col gap-2">
+                <a
+                  href={STARTOVAC_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-10 items-center justify-between gap-3 rounded-md px-4 text-sm font-semibold text-white transition hover:opacity-90"
+                  style={{ backgroundColor: "#1ebd39" }}
+                >
+                  <span className="flex-1 text-left">Podpořit na Startovači</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMinPaymentBlockedOpen(false);
+                    setBtcPayPurchaseOpen(true);
+                  }}
+                  className="flex h-10 items-center justify-between gap-3 rounded-md px-4 text-sm font-semibold text-white transition hover:opacity-90"
+                  style={{ backgroundColor: "#F7931A" }}
+                >
+                  <span className="flex-1 text-left">Zaplatit Bitcoinem</span>
+                </button>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => setMinPaymentBlockedOpen(false)}
+              className="w-full"
+            >
+              Zavřít
+            </Button>
+          </div>
+        </div>
+      )}
 
       {overwriteBlockedOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
