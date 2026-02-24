@@ -46,7 +46,7 @@ export function HowItWorksModal({
           </button>
         </div>
 
-        <div className="max-h-[70vh] space-y-3 overflow-y-auto px-6 pb-6 text-sm text-muted-foreground">
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto px-6 pb-6 text-sm text-muted-foreground sm:max-h-[calc(100vh-8rem)]">
           <p>
             <strong className="text-foreground">24. února</strong> se zrodila
             PixAgora – společné plátno, kde každý pixel má svou cenu. Hrajte si,

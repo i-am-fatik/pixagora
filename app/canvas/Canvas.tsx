@@ -333,12 +333,12 @@ export function Canvas({
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
 
-  const MIN_ZOOM = 1;
+  const MIN_ZOOM = 0.8;
   const MAX_ZOOM = 12;
   const ZOOM_STEP = 1.5;
   /** Fraction of cell size (0..0.5) by which pointer must be inside the cell to count for free paint. Reduces accidental diagonal paints. */
   const FREE_PAINT_CELL_INSET = 0.1;
-  const [fitScale, setFitScale] = useState(0.9);
+  const [fitScale] = useState(1);
   const PREVIEW_MAX = 120;
   const PREVIEW_MARGIN = 12;
   const previewPixels = useMemo(() => {
@@ -446,18 +446,6 @@ export function Canvas({
   ]);
 
   useEffect(() => {
-    const media = window.matchMedia("(pointer: coarse), (max-width: 768px)");
-    const update = () => setFitScale(media.matches ? 1 : 0.9);
-    update();
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", update);
-      return () => media.removeEventListener("change", update);
-    }
-    media.addListener(update);
-    return () => media.removeListener(update);
-  }, []);
-
-  useEffect(() => {
     const media = window.matchMedia("(pointer: coarse)");
     const update = () => setIsCoarsePointer(media.matches);
     update();
@@ -534,17 +522,35 @@ export function Canvas({
       }
       const contentWidth = baseSize.width * nextScale;
       const contentHeight = baseSize.height * nextScale;
+      const allowSlack = nextScale < 1;
+      const edgePad = allowSlack ? (isCoarsePointer ? 48 : 32) : 0;
 
       let minX = containerSize.width - contentWidth;
       let maxX = 0;
       if (contentWidth <= containerSize.width) {
-        minX = maxX = (containerSize.width - contentWidth) / 2;
+        if (allowSlack) {
+          minX = -edgePad;
+          maxX = containerSize.width - contentWidth + edgePad;
+        } else {
+          minX = maxX = (containerSize.width - contentWidth) / 2;
+        }
+      } else if (allowSlack) {
+        minX -= edgePad;
+        maxX = edgePad;
       }
 
       let minY = containerSize.height - contentHeight;
       let maxY = 0;
       if (contentHeight <= containerSize.height) {
-        minY = maxY = (containerSize.height - contentHeight) / 2;
+        if (allowSlack) {
+          minY = -edgePad;
+          maxY = containerSize.height - contentHeight + edgePad;
+        } else {
+          minY = maxY = (containerSize.height - contentHeight) / 2;
+        }
+      } else if (allowSlack) {
+        minY -= edgePad;
+        maxY = edgePad;
       }
 
       return {
@@ -557,6 +563,7 @@ export function Canvas({
       baseSize.width,
       containerSize.height,
       containerSize.width,
+      isCoarsePointer,
     ],
   );
 
@@ -564,17 +571,35 @@ export function Canvas({
     (nextScale: number) => {
       const contentWidth = baseSize.width * nextScale;
       const contentHeight = baseSize.height * nextScale;
+      const allowSlack = nextScale < 1;
+      const edgePad = allowSlack ? (isCoarsePointer ? 48 : 32) : 0;
 
       let minX = containerSize.width - contentWidth;
       let maxX = 0;
       if (contentWidth <= containerSize.width) {
-        minX = maxX = (containerSize.width - contentWidth) / 2;
+        if (allowSlack) {
+          minX = -edgePad;
+          maxX = containerSize.width - contentWidth + edgePad;
+        } else {
+          minX = maxX = (containerSize.width - contentWidth) / 2;
+        }
+      } else if (allowSlack) {
+        minX -= edgePad;
+        maxX = edgePad;
       }
 
       let minY = containerSize.height - contentHeight;
       let maxY = 0;
       if (contentHeight <= containerSize.height) {
-        minY = maxY = (containerSize.height - contentHeight) / 2;
+        if (allowSlack) {
+          minY = -edgePad;
+          maxY = containerSize.height - contentHeight + edgePad;
+        } else {
+          minY = maxY = (containerSize.height - contentHeight) / 2;
+        }
+      } else if (allowSlack) {
+        minY -= edgePad;
+        maxY = edgePad;
       }
 
       return { minX, maxX, minY, maxY };
@@ -584,6 +609,7 @@ export function Canvas({
       baseSize.width,
       containerSize.height,
       containerSize.width,
+      isCoarsePointer,
     ],
   );
 
@@ -622,11 +648,21 @@ export function Canvas({
     if (!containerSize.width || !containerSize.height) {
       return;
     }
-    const clamped = clampTranslate(0, 0, MIN_ZOOM);
-    setScale(MIN_ZOOM);
+    const contentWidth = baseSize.width * 1;
+    const contentHeight = baseSize.height * 1;
+    const centerX = (containerSize.width - contentWidth) / 2;
+    const centerY = (containerSize.height - contentHeight) / 2;
+    const clamped = clampTranslate(centerX, centerY, 1);
+    setScale(1);
     translateRef.current = clamped;
     setTranslate(clamped);
-  }, [clampTranslate, containerSize.height, containerSize.width]);
+  }, [
+    baseSize.height,
+    baseSize.width,
+    clampTranslate,
+    containerSize.height,
+    containerSize.width,
+  ]);
 
   const zoomBy = useCallback(
     (direction: 1 | -1) => {

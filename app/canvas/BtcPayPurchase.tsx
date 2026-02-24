@@ -174,8 +174,7 @@ export function BtcPayPurchase({
           <button
             type="button"
             onClick={() => {
-              setShowOverlay(false);
-              setOverlayDismissed(true);
+              handleClose();
             }}
             className="absolute right-2 top-2 rounded-full p-1 text-black/60 transition hover:text-black dark:text-white/60 dark:hover:text-white"
             aria-label="Zavřít"

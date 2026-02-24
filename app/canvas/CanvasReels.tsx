@@ -24,7 +24,6 @@ type CanvasReelsProps = {
   renderItem: (index: number) => ReactNode;
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
-  enableTouchSwipe?: boolean;
 };
 
 const HINT_STORAGE_KEY = "pixagora-reels-hint-dismissed";
@@ -37,7 +36,6 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
       renderItem,
       initialIndex = 0,
       onIndexChange,
-      enableTouchSwipe = true,
     },
     ref,
   ) {
@@ -65,7 +63,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   const heightRef = useRef(0);
 
   const hasMultiple = count > 1;
-  const touchEnabled = enableTouchSwipe && hasMultiple;
+  const touchEnabled = false;
 
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
@@ -260,14 +258,20 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
         type="button"
         onClick={handleLabelClick}
         disabled={!hasMultiple}
-        className="absolute left-4 top-4 z-10 rounded-full border border-black/10 bg-background/60 px-3 py-2 text-[11px] font-medium text-foreground shadow-sm transition hover:text-foreground disabled:cursor-not-allowed dark:border-white/10 dark:text-white dark:hover:text-white"
+        className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full border border-black/10 bg-background/60 px-3 py-2 text-[11px] font-medium text-foreground shadow-sm transition hover:text-foreground disabled:cursor-not-allowed dark:border-white/10 dark:text-white dark:hover:text-white"
         onPointerDown={(event) => event.stopPropagation()}
         onPointerUp={(event) => event.stopPropagation()}
         onPointerMove={(event) => event.stopPropagation()}
         onPointerCancel={(event) => event.stopPropagation()}
         aria-label="Přepnout plátno"
       >
-        {reelLabel}
+        <span>{reelLabel}</span>
+        {hasMultiple && (
+          <span className="flex flex-col leading-none text-muted-foreground/70">
+            <ChevronUp className="h-3 w-3" />
+            <ChevronDown className="-mt-1 h-3 w-3" />
+          </span>
+        )}
       </button>
 
       {hasMultiple && (
@@ -293,7 +297,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
         </div>
       )}
 
-      {hintTimerDone && hasMultiple && activeIndex === 0 && !hintDismissed && (
+      {touchEnabled && hintTimerDone && hasMultiple && activeIndex === 0 && !hintDismissed && (
         <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full bg-background/65 px-3 py-2 text-[11px] font-medium text-muted-foreground shadow-sm md:hidden">
           <div className="flex flex-col items-center leading-none text-muted-foreground/80">
             <ChevronUp

@@ -782,20 +782,6 @@ export default function CanvasPage() {
     setActiveReelIndex(index);
   }, []);
 
-  const handleEdgeSwipe = useCallback(
-    (direction: "next" | "prev") => {
-      if (totalCanvases <= 1) {
-        return;
-      }
-      if (direction === "next") {
-        reelsRef.current?.next();
-      } else {
-        reelsRef.current?.prev();
-      }
-    },
-    [totalCanvases],
-  );
-
   return (
     <>
       <CanvasPageLayout
@@ -844,7 +830,6 @@ export default function CanvasPage() {
           <CanvasReels
             ref={reelsRef}
             count={totalCanvases}
-            enableTouchSwipe={false}
             onIndexChange={handleReelIndexChange}
             renderItem={(index) => (
               <div className="flex h-full w-full items-center justify-center overflow-hidden">
@@ -875,9 +860,6 @@ export default function CanvasPage() {
                         index === activeReelIndex ? moveDraft?.pixels ?? null : null
                       }
                       movePreviewActive={index === activeReelIndex && !!moveDraft}
-                      onEdgeSwipe={
-                        index === activeReelIndex ? handleEdgeSwipe : undefined
-                      }
                       highlightedPixels={
                         index === activeReelIndex
                           ? highlightedPixelSet

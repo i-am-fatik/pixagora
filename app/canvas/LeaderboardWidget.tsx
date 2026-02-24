@@ -95,19 +95,19 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
 
   return (
     <>
-      <div className="fixed bottom-20 left-4 z-30">
+      <div className="fixed bottom-16 left-4 z-30 sm:bottom-[4.5rem]">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="group relative w-auto overflow-hidden rounded-2xl border border-black/10 bg-background/70 p-3 text-left shadow-lg backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background/80 hover:shadow-xl dark:border-white/10 sm:w-52"
+          className="group relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-black/10 bg-background/70 text-left shadow-lg backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background/80 hover:shadow-xl dark:border-white/10 sm:h-auto sm:w-52 sm:flex-col sm:items-stretch sm:justify-start sm:gap-2 sm:rounded-2xl sm:p-3"
           aria-label="Otevřít leaderboard"
         >
           <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-primary/20 blur-2xl" />
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-            <Trophy className="h-3.5 w-3.5 text-amber-400/90" />
-            <span className="sm:inline">Top malíři</span>
+            <Trophy className="h-4 w-4 text-amber-400/90 sm:h-3.5 sm:w-3.5" />
+            <span className="hidden sm:inline">Top malíři</span>
           </div>
-          <div className="mt-2 space-y-1 hidden sm:block">
+          <div className="mt-2 hidden space-y-1 sm:block sm:w-full">
             {previewLoading ? (
               <div className="text-[11px] text-muted-foreground">Načítám…</div>
             ) : topThree.length > 0 ? (
@@ -128,7 +128,7 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
                       1
                     </div>
                     <span
-                      className="truncate text-xs font-semibold sm:overflow-visible sm:text-clip sm:whitespace-normal"
+                      className="min-w-0 flex-1 truncate text-xs font-semibold"
                       style={{ color: topThree[0].displayColor }}
                     >
                       {topThree[0].displayName}
@@ -159,7 +159,7 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
                           {index + 2}
                         </div>
                         <span
-                          className="truncate text-xs font-semibold sm:overflow-visible sm:text-clip sm:whitespace-normal"
+                          className="min-w-0 flex-1 truncate text-xs font-semibold"
                           style={{ color: entry.displayColor }}
                         >
                           {entry.displayName}
