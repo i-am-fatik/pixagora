@@ -1,11 +1,35 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import * as React from "react";
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { calculateCredits } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, X } from "lucide-react";
+import { Loader2, X, Check, Ban } from "lucide-react";
+import * as SliderPrimitive from "@radix-ui/react-slider";
+import { cn } from "@/lib/utils";
+
+const Slider = React.forwardRef<
+  React.ElementRef<typeof SliderPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <SliderPrimitive.Root
+    ref={ref}
+    className={cn(
+      "relative flex w-full touch-none select-none items-center",
+      className
+    )}
+    {...props}
+  >
+    <SliderPrimitive.Track className="relative h-2 w-full grow overflow-hidden rounded-full bg-secondary">
+      <SliderPrimitive.Range className="absolute h-full bg-primary" />
+    </SliderPrimitive.Track>
+    <SliderPrimitive.Thumb className="block h-5 w-5 rounded-full border-2 border-primary bg-background ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50" />
+  </SliderPrimitive.Root>
+));
+Slider.displayName = SliderPrimitive.Root.displayName;
 
 declare global {
   interface Window {
@@ -21,32 +45,38 @@ declare global {
 type BtcPayPurchaseProps = {
   open: boolean;
   prefillEmail?: string | null;
+  totalPaidCzk?: number;
   onClose: () => void;
 };
 
 export function BtcPayPurchase({
   open,
   prefillEmail,
+  totalPaidCzk = 0,
   onClose,
 }: BtcPayPurchaseProps) {
   const [email, setEmail] = useState(prefillEmail ?? "");
+  const [amountCzk, setAmountCzk] = useState(666);
   const [isCreating, setIsCreating] = useState(false);
-  const [showOverlay, setShowOverlay] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
-  const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
   const createInvoice = useAction(api.btcpay.createInvoice);
   const modalRef = useRef<HTMLDivElement | null>(null);
-  const autoSubmittedRef = useRef(false);
+
+  const credits = calculateCredits(amountCzk);
+  const currentTotal = totalPaidCzk + amountCzk;
+  const canOverwrite = currentTotal >= 666;
+  const betterPrice = amountCzk >= 666;
 
   const handleClose = () => {
-    setShowOverlay(false);
     setInvoiceOpen(false);
-    setOverlayDismissed(false);
     setIsCreating(false);
-    autoSubmittedRef.current = false;
     setScriptReady(false);
-    window.btcpay?.hideFrame?.();
+    try {
+      window.btcpay?.hideFrame?.();
+    } catch {
+      // Ignore errors when hiding frame (e.g. if already removed)
+    }
     onClose();
   };
 
@@ -69,11 +99,8 @@ export function BtcPayPurchase({
 
   useEffect(() => {
     if (!open) {
-      setShowOverlay(false);
       setInvoiceOpen(false);
       setIsCreating(false);
-      setOverlayDismissed(false);
-      autoSubmittedRef.current = false;
       setScriptReady(false);
       return;
     }
@@ -104,13 +131,14 @@ export function BtcPayPurchase({
 
   const handleBtcPayEvent = (event: MessageEvent) => {
     console.log("BTCPay event:", event.data);
-    if (event.data === "loaded") {
-      if (!overlayDismissed) {
-        setShowOverlay(true);
-      }
-    } else if (event.data.status === "Settled") {
-      setShowOverlay(false);
-      setTimeout(() => window.btcpay!.hideFrame(), 1000);
+    if (event.data.status === "Settled") {
+      setTimeout(() => {
+        try {
+          window.btcpay?.hideFrame?.();
+        } catch {
+          // Ignore errors
+        }
+      }, 1000);
     }
   };
 
@@ -124,6 +152,7 @@ export function BtcPayPurchase({
       const { invoiceId, checkoutLink } = await createInvoice({
         email: emailValue,
         redirectUrl: window.location.href,
+        amount: amountCzk,
       });
       const ready = window.btcpay ? true : await waitForBtcPay();
       if (ready && window.btcpay) {
@@ -149,46 +178,8 @@ export function BtcPayPurchase({
     await startInvoice(email);
   };
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const trimmed = prefillEmail?.trim();
-    if (!trimmed || isCreating || invoiceOpen || autoSubmittedRef.current) {
-      return;
-    }
-    autoSubmittedRef.current = true;
-    startInvoice(trimmed);
-  }, [open, prefillEmail, isCreating, invoiceOpen]);
-
   if (!open) {
     return null;
-  }
-
-  const overlayVisible = showOverlay || (invoiceOpen && !overlayDismissed);
-
-  if (overlayVisible) {
-    return (
-      <div className="fixed inset-0 z-[3000] flex items-start justify-center pt-6 pointer-events-none">
-        <div className="relative max-w-md rounded-xl border border-black/10 bg-white/80 px-6 py-4 text-center text-sm font-medium text-black shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/70 dark:text-white pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => {
-              handleClose();
-            }}
-            className="absolute right-2 top-2 rounded-full p-1 text-black/60 transition hover:text-black dark:text-white/60 dark:hover:text-white"
-            aria-label="Zavřít"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <h2 className="text-xl">Přispěj kolik chceš</h2>
-          <p className="pt-2">Cena za 1 px je 5 Kč</p>
-          <p className="pt-2">
-            Pokud pošleš více než 666 Kč, tak můžeš překreslovat už použité pixely.
-          </p>
-        </div>
-      </div>
-    );
   }
 
   if (invoiceOpen) {
@@ -214,16 +205,9 @@ export function BtcPayPurchase({
       >
         <div className="flex items-start justify-between">
           <div className="space-y-1">
-            <h2 className="text-xl font-semibold">
-              {hideEmailForm ? "Připravuji platbu" : "Zadej e-mail"}
-            </h2>
+            <h2 className="text-xl font-semibold">Dobít kredity</h2>
             <p className="text-sm text-muted-foreground">
-              {hideEmailForm
-                ? "Použiju e-mail z účtu."
-                : "Pro možnost se později přihlásit"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Cena za 1 px je 5 Kč.
+              Vyber si množství kreditů.
             </p>
           </div>
           <button
@@ -235,37 +219,92 @@ export function BtcPayPurchase({
             <X className="h-5 w-5" />
           </button>
         </div>
-        {!hideEmailForm && (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email..."
-              autoComplete="email"
-              required
-              autoFocus
-            />
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={isCreating || !email} className="flex-1">
-                {isCreating ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Připravuji invoice...
-                  </>
-                ) : (
-                  "Pokračovat k platbě"
-                )}
-              </Button>
+
+        <div className="space-y-6 py-2">
+          <div className="space-y-4">
+            <div className="flex justify-between text-sm font-medium">
+              <span>{credits} kreditů</span>
+              <span>{amountCzk} Kč</span>
             </div>
-          </form>
-        )}
-        {hideEmailForm && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Otevírám BTCPay…
+            <Slider
+              min={69}
+              max={1332}
+              step={1}
+              value={[amountCzk]}
+              onValueChange={(value) => setAmountCzk(value[0])}
+            />
           </div>
-        )}
+
+          <div className="space-y-2 text-sm">
+            <div
+              className={cn(
+                "flex items-center gap-2",
+                canOverwrite ? "text-foreground" : "text-muted-foreground/50"
+              )}
+            >
+              {canOverwrite ? (
+                <Check className="h-4 w-4 text-green-500" />
+              ) : (
+                <Ban className="h-4 w-4" />
+              )}
+              <span className={cn(!canOverwrite && "line-through")}>
+                Možnost překreslovat pixely
+              </span>
+            </div>
+            <div
+              className={cn(
+                "flex items-center gap-2",
+                betterPrice ? "text-foreground" : "text-muted-foreground/50"
+              )}
+            >
+              {betterPrice ? (
+                <Check className="h-4 w-4 text-green-500" />
+              ) : (
+                <Ban className="h-4 w-4" />
+              )}
+              <span className={cn(!betterPrice && "line-through")}>
+                Výhodnější cena při nákupu min 169 kreditů
+              </span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {!hideEmailForm && (
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-sm font-medium">
+                  E-mail pro potvrzení
+                </label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="tvuj@email.cz"
+                  autoComplete="email"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Pro možnost se později přihlásit
+                </p>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              disabled={isCreating || !email}
+              className="w-full"
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Připravuji platbu...
+                </>
+              ) : (
+                `Zaplatit ${amountCzk} Kč`
+              )}
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   );

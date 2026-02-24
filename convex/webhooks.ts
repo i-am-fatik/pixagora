@@ -1,6 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { findOrCreateUser } from "./credits";
+import { calculateCredits } from "./pricing";
 
 const STARTOVAC_REWARDS: Record<
   string,
@@ -9,8 +10,6 @@ const STARTOVAC_REWARDS: Record<
   maly_pixagorista: { basePrice: 69, credits: 11 },
   velky_pixagorista: { basePrice: 666, credits: 169 },
 };
-
-const FALLBACK_CZK_PER_CREDIT = 5;
 
 function rewardSourceLabel(source: string): string {
   if (source === "btcpay") {
@@ -39,12 +38,12 @@ function creditsForReward(
     if (!config) {
       return null;
     }
-    if (amountCzk > config.basePrice) {
-      return Math.floor(amountCzk / (config.basePrice / config.credits));
-    }
-    return config.credits;
+    return calculateCredits(amountCzk);
   }
-  return Math.floor(amountCzk / FALLBACK_CZK_PER_CREDIT);
+  if (source === "btcpay") {
+    return calculateCredits(amountCzk);
+  }
+  return null;
 }
 
 export const processPayment = internalMutation({

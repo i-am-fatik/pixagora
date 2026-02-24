@@ -5,8 +5,9 @@ export const createInvoice = action({
   args: {
     email: v.string(),
     redirectUrl: v.optional(v.string()),
+    amount: v.number(),
   },
-  handler: async (ctx, { email, redirectUrl }) => {
+  handler: async (ctx, { email, redirectUrl, amount }) => {
     const btcpayUrl = process.env.BTCPAY_URL;
     const btcpayApiKey = process.env.BTCPAY_API_KEY;
     const storeId = process.env.BTCPAY_STORE;
@@ -24,6 +25,8 @@ export const createInvoice = action({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          amount,
+          currency: "CZK",
           metadata: {
             form: {
               email: email,
