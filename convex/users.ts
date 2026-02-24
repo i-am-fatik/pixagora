@@ -28,7 +28,11 @@ export const getPaymentSummary = query({
       return null;
     }
     const totalPaidCzk = await computeTotalPaidCzk(ctx, user._id);
-    return { totalPaidCzk, canOverwrite: totalPaidCzk >= 666 };
+    return {
+      totalPaidCzk,
+      canOverwrite: totalPaidCzk >= 666,
+      email: user.email,
+    };
   },
 });
 

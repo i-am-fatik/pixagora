@@ -1,16 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { findOrCreateUser } from "./credits";
-
-const STARTOVAC_REWARDS: Record<
-  string,
-  { basePrice: number; credits: number }
-> = {
-  maly_pixagorista: { basePrice: 69, credits: 11 },
-  velky_pixagorista: { basePrice: 666, credits: 169 },
-};
-
-const FALLBACK_CZK_PER_CREDIT = 5;
+import { calculateCredits } from "./pricing";
 
 function rewardSourceLabel(source: string): string {
   if (source === "btcpay") {
@@ -19,32 +10,15 @@ function rewardSourceLabel(source: string): string {
   return "Startovač";
 }
 
-function normalizeRewardKey(reward: string): string {
-  return reward
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, "_");
-}
-
 function creditsForReward(
   source: string,
   reward: string,
   amountCzk: number,
 ): number | null {
-  if (source === "startovac") {
-    const config = STARTOVAC_REWARDS[normalizeRewardKey(reward)];
-    if (!config) {
-      return null;
-    }
-    if (amountCzk > config.basePrice) {
-      return Math.floor(amountCzk / (config.basePrice / config.credits));
-    }
-    return config.credits;
+  if (reward.toLowerCase().includes("pixagor")) {
+    return calculateCredits(amountCzk);
   }
-  return Math.floor(amountCzk / FALLBACK_CZK_PER_CREDIT);
+  return null;
 }
 
 export const processPayment = internalMutation({
