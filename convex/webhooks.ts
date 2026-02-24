@@ -3,14 +3,6 @@ import { v } from "convex/values";
 import { findOrCreateUser } from "./credits";
 import { calculateCredits } from "./pricing";
 
-const STARTOVAC_REWARDS: Record<
-  string,
-  { basePrice: number; credits: number }
-> = {
-  maly_pixagorista: { basePrice: 69, credits: 11 },
-  velky_pixagorista: { basePrice: 666, credits: 169 },
-};
-
 function rewardSourceLabel(source: string): string {
   if (source === "btcpay") {
     return "BTCPay";
@@ -18,29 +10,12 @@ function rewardSourceLabel(source: string): string {
   return "Startovač";
 }
 
-function normalizeRewardKey(reward: string): string {
-  return reward
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, "_");
-}
-
 function creditsForReward(
   source: string,
   reward: string,
   amountCzk: number,
 ): number | null {
-  if (source === "startovac") {
-    const config = STARTOVAC_REWARDS[normalizeRewardKey(reward)];
-    if (!config) {
-      return null;
-    }
-    return calculateCredits(amountCzk);
-  }
-  if (source === "btcpay") {
+  if (reward.toLowerCase().includes("pixagor")) {
     return calculateCredits(amountCzk);
   }
   return null;
