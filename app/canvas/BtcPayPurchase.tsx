@@ -38,20 +38,32 @@ export function BtcPayPurchase({
   const createInvoice = useAction(api.btcpay.createInvoice);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const autoSubmittedRef = useRef(false);
+  const closingRef = useRef(false);
 
   const handleClose = () => {
+    if (closingRef.current) {
+      return;
+    }
+    closingRef.current = true;
     setShowOverlay(false);
     setInvoiceOpen(false);
     setOverlayDismissed(false);
     setIsCreating(false);
     autoSubmittedRef.current = false;
     setScriptReady(false);
-    window.btcpay?.hideFrame?.();
+    if (invoiceOpen) {
+      try {
+        window.btcpay?.hideFrame?.();
+      } catch {
+        // Ignore BTCPay teardown errors.
+      }
+    }
     onClose();
   };
 
   useEffect(() => {
     if (open) {
+      closingRef.current = false;
       // Preload BTCPay script
       const scriptId = "btcpay-modal-js";
       if (!document.getElementById(scriptId)) {
@@ -228,6 +240,10 @@ export function BtcPayPurchase({
           </div>
           <button
             type="button"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              handleClose();
+            }}
             onClick={handleClose}
             className="rounded-md p-1 text-muted-foreground transition hover:text-foreground"
             aria-label="Zavřít"
