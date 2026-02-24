@@ -15,10 +15,20 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = (() => {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!raw) {
+    return "https://pixagora.urza.cz";
+  }
+  try {
+    return new URL(raw).toString();
+  } catch {
+    return "https://pixagora.urza.cz";
+  }
+})();
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "https://pixagora.urza.cz",
-  ),
+  metadataBase: new URL(siteUrl),
   title: {
     default: "PixAgora",
     template: "%s | PixAgora",
