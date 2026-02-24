@@ -183,9 +183,9 @@ export function BtcPayPurchase({
             <X className="h-4 w-4" />
           </button>
           <h2 className="text-xl">Přispěj kolik chceš</h2>
-          <p className="pt-2">Cena za 1 kredit je 10 Kč</p>
+          <p className="pt-2">Cena za 1 px je 5 Kč</p>
           <p className="pt-2">
-            Pokud pošleš více než 1000 Kč, tak můžeš překreslovat už použité pixely.
+            Pokud pošleš více než 666 Kč, tak můžeš překreslovat už použité pixely.
           </p>
         </div>
       </div>
@@ -222,6 +222,9 @@ export function BtcPayPurchase({
               {hideEmailForm
                 ? "Použiju e-mail z účtu."
                 : "Pro možnost se později přihlásit"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Cena za 1 px je 5 Kč.
             </p>
           </div>
           <button

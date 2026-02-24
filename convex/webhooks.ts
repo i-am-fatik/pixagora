@@ -10,7 +10,7 @@ const STARTOVAC_REWARDS: Record<
   velky_pixagorista: { basePrice: 666, credits: 169 },
 };
 
-const FALLBACK_CZK_PER_CREDIT = 30;
+const FALLBACK_CZK_PER_CREDIT = 5;
 
 function rewardSourceLabel(source: string): string {
   if (source === "btcpay") {
