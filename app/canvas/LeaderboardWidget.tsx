@@ -95,7 +95,7 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
 
   return (
     <>
-      <div className="fixed bottom-20 left-4 z-40">
+      <div className="fixed bottom-20 left-4 z-30">
         <button
           type="button"
           onClick={() => setOpen(true)}
