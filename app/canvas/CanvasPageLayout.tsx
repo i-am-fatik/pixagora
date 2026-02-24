@@ -31,6 +31,7 @@ type CanvasPageLayoutProps = {
   canRedo: boolean;
   canCommit: boolean;
   isCommitting?: boolean;
+  commitLocked?: boolean;
   onClearPending: () => void;
   canClear: boolean;
   onMove?: () => void;
@@ -66,6 +67,7 @@ export function CanvasPageLayout({
   canRedo,
   canCommit,
   isCommitting = false,
+  commitLocked = false,
   onClearPending,
   canClear,
   onMove,
@@ -291,17 +293,24 @@ export function CanvasPageLayout({
                     <Move className="h-4 w-4" />
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={onCommit}
-                  disabled={!canCommit || isCommitting}
-                  aria-label="Zakreslit"
-                  data-tutorial="commit"
-                  className="inline-flex h-8 items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50 sm:h-9 sm:px-4 sm:text-sm"
-                >
-                  <Check className="h-4 w-4 sm:hidden" />
-                  <span className="hidden sm:inline">Zakreslit</span>
-                </button>
+                <div className="relative group">
+                  <button
+                    type="button"
+                    onClick={onCommit}
+                    disabled={!canCommit || isCommitting || commitLocked}
+                    aria-label="Zakreslit"
+                    data-tutorial="commit"
+                    className="inline-flex h-8 items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50 sm:h-9 sm:px-4 sm:text-sm"
+                  >
+                    <Check className="h-4 w-4 sm:hidden" />
+                    <span className="hidden sm:inline">Zakreslit</span>
+                  </button>
+                  {commitLocked && (
+                    <div className="pointer-events-none absolute bottom-full right-0 mb-2 w-max max-w-[180px] rounded-full border border-black/10 bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm opacity-0 transition group-hover:opacity-100 dark:border-white/10">
+                      Plátno bylo uzamčeno
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </footer>

@@ -100,6 +100,9 @@ export const commit = mutation({
     if (!canvas) {
       throw new Error("Canvas not found");
     }
+    if (canvas.locked) {
+      return { error: "CANVAS_LOCKED" as const };
+    }
 
     const changes: {
       x: number;

@@ -41,6 +41,7 @@ export default defineSchema({
     pixelPrice: v.number(),
     unlockThreshold: v.optional(v.number()),
     enforceColors: v.optional(v.boolean()),
+    locked: v.optional(v.boolean()),
     order: v.number(),
     createdAt: v.number(),
     createdBy: v.optional(v.id("users")),

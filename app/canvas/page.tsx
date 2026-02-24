@@ -246,6 +246,7 @@ export default function CanvasPage() {
 
   const activeCanvas = canvases?.[activeReelIndex];
   const canvasId = activeCanvas?._id;
+  const isCanvasLocked = !!activeCanvas?.locked;
 
   const pixels = useQuery(
     api.pixels.getByCanvas,
@@ -600,6 +601,9 @@ export default function CanvasPage() {
       handleOpenAnonymousPopup();
       return;
     }
+    if (isCanvasLocked) {
+      return;
+    }
     if (hasForeignOverwrite && !paymentSummary?.canOverwrite) {
       setOverwriteBlockedOpen(true);
       return;
@@ -733,6 +737,8 @@ export default function CanvasPage() {
         } else if (result.error === "OVERWRITE_LOCKED") {
           setConfirmOpen(false);
           setOverwriteBlockedOpen(true);
+        } else if (result.error === "CANVAS_LOCKED") {
+          setConfirmOpen(false);
         } else if (result.error === "PRICE_CHANGED") {
           setInitialCost(totalCost);
           setInitialPendingCount(pendingCount);
@@ -788,7 +794,8 @@ export default function CanvasPage() {
         onCommit={handleOpenConfirm}
         canUndo={canUndo}
         canRedo={canRedo}
-        canCommit={pendingCount > 0 && !!canvasId && !moveDraft}
+        canCommit={pendingCount > 0 && !!canvasId && !moveDraft && !isCanvasLocked}
+        commitLocked={isCanvasLocked}
         isCommitting={isCommitting}
         onClearPending={handleOpenClearConfirm}
         canClear={canClear}
