@@ -28,6 +28,7 @@ type CanvasProps = {
   movePreviewPixels?: Pixel[] | null;
   movePreviewActive?: boolean;
   isFreeModePainting?: boolean;
+  onFreePaint?: (x: number, y: number) => void;
   onStrokeStart?: () => void;
   onStrokeEnd?: () => void;
 };
@@ -276,6 +277,7 @@ export function Canvas({
   movePreviewPixels,
   movePreviewActive = false,
   isFreeModePainting = false,
+  onFreePaint,
   onStrokeStart,
   onStrokeEnd,
 }: CanvasProps) {
@@ -902,8 +904,7 @@ export function Canvas({
       return;
     }
 
-    const isMouse = event.pointerType === "mouse";
-    if (isFreeModePainting && isMouse) {
+    if (isFreeModePainting) {
       isPaintStrokeRef.current = true;
       didPaintStrokeRef.current = true;
       lastPaintedCellRef.current = null;
@@ -924,7 +925,7 @@ export function Canvas({
           height,
         );
         if (cell) {
-          onPixelClick(cell.x, cell.y);
+          (onFreePaint ?? onPixelClick)(cell.x, cell.y);
           lastPaintedCellRef.current = cell;
         }
       }
@@ -1022,7 +1023,7 @@ export function Canvas({
       return;
     }
 
-    if (isFreeModePainting && event.pointerType === "mouse" && isPaintStrokeRef.current) {
+    if (isFreeModePainting && isPaintStrokeRef.current) {
       const rect = containerRef.current?.getBoundingClientRect();
       if (rect) {
         const cell = hitTest(
@@ -1042,10 +1043,10 @@ export function Canvas({
           if (last) {
             const gap = lineCells(last.x, last.y, cell.x, cell.y);
             for (const g of gap) {
-              onPixelClick(g.x, g.y);
+              (onFreePaint ?? onPixelClick)(g.x, g.y);
             }
           } else {
-            onPixelClick(cell.x, cell.y);
+            (onFreePaint ?? onPixelClick)(cell.x, cell.y);
           }
           lastPaintedCellRef.current = cell;
         }

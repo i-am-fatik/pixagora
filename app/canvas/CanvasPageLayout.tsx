@@ -227,19 +227,51 @@ export function CanvasPageLayout({
               </div>
 
               <span className="hidden h-5 w-px bg-muted-foreground/30 sm:inline-block" />
-              {onFreeModePaintingChange && (
+              <div className="flex items-center gap-1">
+                {onFreeModePaintingChange && (
                   <button
                     type="button"
                     onClick={() => onFreeModePaintingChange(!isFreeModePainting)}
-                    aria-label={isFreeModePainting ? "Vypnout režim kreslení tažením" : "Zapnout režim kreslení tažením"}
-                    title={isFreeModePainting ? "Vypnout režim kreslení tažením" : "Zapnout režim kreslení tažením"}
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground sm:h-9 sm:w-9 ${isFreeModePainting ? "text-green-500" : ""}`}
+                    aria-label={
+                      isFreeModePainting
+                        ? "Vypnout režim kreslení tažením"
+                        : "Zapnout režim kreslení tažením"
+                    }
+                    title={
+                      isFreeModePainting
+                        ? "Vypnout režim kreslení tažením"
+                        : "Zapnout režim kreslení tažením"
+                    }
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground sm:h-9 sm:w-9 ${
+                      isFreeModePainting
+                        ? "bg-emerald-500/15 text-emerald-500"
+                        : ""
+                    }`}
                   >
                     <Brush className="h-4 w-4" />
                   </button>
                 )}
+                {onMove && (
+                  <button
+                    type="button"
+                    onClick={onMove}
+                    disabled={!canMove}
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9 ${
+                      moveActive
+                        ? "bg-amber-500/15 text-amber-500"
+                        : ""
+                    }`}
+                    aria-label="Přesunout návrh"
+                  >
+                    <Move className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
 
-              <div className="flex-1"/>
+              <div className="hidden sm:flex sm:items-center sm:gap-3 sm:flex-1">
+                <span className="h-5 w-px bg-muted-foreground/30" />
+                <div className="flex-1" />
+              </div>
 
               <div className="flex items-center gap-1 shrink-0 sm:gap-2">
                 
@@ -282,17 +314,6 @@ export function CanvasPageLayout({
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
-                {onMove && (
-                  <button
-                    type="button"
-                    onClick={onMove}
-                    disabled={!canMove}
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9 ${moveActive ? "bg-foreground/10 text-foreground" : ""}`}
-                    aria-label="Přesunout návrh"
-                  >
-                    <Move className="h-4 w-4" />
-                  </button>
-                )}
                 <div className="relative group">
                   <button
                     type="button"

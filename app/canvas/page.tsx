@@ -676,6 +676,28 @@ export default function CanvasPage() {
     }
   };
 
+  const handleFreePaint = (x: number, y: number) => {
+    if (moveDraft) {
+      return;
+    }
+    const key = `${x},${y}`;
+    const serverColor = serverPixelMap.get(key)?.color;
+    const visibleColor = (
+      pendingState.pending[key] ??
+      serverColor ??
+      "#ffffff"
+    ).toLowerCase();
+
+    if (selectedColor.toLowerCase() === visibleColor) {
+      return;
+    }
+    const nextPending =
+      selectedColor.toLowerCase() === (serverColor ?? "#ffffff").toLowerCase()
+        ? undefined
+        : selectedColor;
+    dispatch({ type: "apply", key, nextPending });
+  };
+
   const handleToggleMove = () => {
     if (moveDraft) {
       setMoveDraft(null);
@@ -842,6 +864,11 @@ export default function CanvasPage() {
                       onPixelClick={(x, y) => {
                         if (index === activeReelIndex) {
                           handlePixelClick(x, y);
+                        }
+                      }}
+                      onFreePaint={(x, y) => {
+                        if (index === activeReelIndex) {
+                          handleFreePaint(x, y);
                         }
                       }}
                       movePreviewPixels={

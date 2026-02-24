@@ -92,7 +92,7 @@ export function ColorPicker({
                 ? "Eyedropper"
                 : "Eyedropper není v tomto prohlížeči dostupný"
             }
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 sm:h-9 sm:w-9"
+            className="hidden h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 sm:inline-flex sm:h-9 sm:w-9"
             aria-label="Eyedropper"
           >
             <Pipette className="h-4 w-4" />
