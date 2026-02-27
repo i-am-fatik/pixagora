@@ -14,7 +14,7 @@ const DEFAULT_STAMP_SRC = "/stamps/urza.png";
 const DEFAULT_STAMP_NAME = "urza.png";
 const DEFAULT_STAMP_SIZE = 24;
 const MIN_STAMP_SIZE = 8;
-const MAX_STAMP_SIZE = 128;
+const MAX_STAMP_SIZE = 256;
 const STAMP_ALPHA_CUTOFF = 20;
 const STAMP_FIT_MODE: "contain" | "stretch" = "contain";
 const STAMP_UNPREMULTIPLY = true;
@@ -112,7 +112,7 @@ export function useStampTool(options: StampOptions = {}) {
             g = Math.min(255, Math.round((g * 255) / a));
             b = Math.min(255, Math.round((b * 255) / a));
           }
-          pixels.push({ x, y, color: rgbToHex(r, g, b) });
+          pixels.push({ x: x - Math.floor(stampSize / 2), y: y - Math.floor(stampSize / 2), color: rgbToHex(r, g, b) });
         }
       }
       setStampPixels(pixels);
@@ -202,6 +202,42 @@ export function useStampTool(options: StampOptions = {}) {
     fileInputRef.current?.click();
   }, []);
 
+  const remapToColors = useCallback((palette: string[]) => {
+    if (palette.length === 0) {
+      return;
+    }
+    const parsed = palette.map((c) => {
+      const hex = c.replace("#", "");
+      return {
+        r: parseInt(hex.substring(0, 2), 16),
+        g: parseInt(hex.substring(2, 4), 16),
+        b: parseInt(hex.substring(4, 6), 16),
+        hex: c.toUpperCase(),
+      };
+    });
+    setStampPixels((prev) =>
+      prev.map((px) => {
+        const hex = px.color.replace("#", "");
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        let best = parsed[0];
+        let bestDist = Infinity;
+        for (const c of parsed) {
+          const dr = r - c.r;
+          const dg = g - c.g;
+          const db = b - c.b;
+          const dist = dr * dr + dg * dg + db * db;
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = c;
+          }
+        }
+        return { ...px, color: best.hex };
+      }),
+    );
+  }, []);
+
   return {
     tool,
     setTool,
@@ -216,5 +252,6 @@ export function useStampTool(options: StampOptions = {}) {
     fileInputRef,
     handleFileChange,
     openFileDialog,
+    remapToColors,
   };
 }

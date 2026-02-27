@@ -890,7 +890,7 @@ export default function CanvasPage() {
         replayCanvasId={canvasId}
         isFreeModePainting={isFreeModePainting}
         onFreeModePaintingChange={setIsFreeModePainting}
-        toolControls={<StampToolControls stamp={stampTool} />}
+        toolControls={<StampToolControls stamp={stampTool} enforceColors={enforceColors} colors={colors} />}
       >
         {totalCanvases === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
@@ -939,6 +939,16 @@ export default function CanvasPage() {
                           ? highlightedPixelSet
                           : undefined
                       }
+                      stampOverlayPixels={
+                        index === activeReelIndex && stampTool.tool === "stamp" && stampTool.stampReady
+                          ? stampTool.stampPixels
+                          : null
+                      }
+                      onWheelStampResize={(delta) => {
+                        stampTool.setStampSize((prev) =>
+                          Math.max(stampTool.minStampSize, Math.min(stampTool.maxStampSize, prev + delta))
+                        );
+                      }}
                       isFreeModePainting={isFreeModePainting}
                       onStrokeStart={() => {
                         strokeHistoryStartRef.current = pendingState.history.length;

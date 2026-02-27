@@ -31,6 +31,8 @@ type CanvasProps = {
   onFreePaint?: (x: number, y: number) => void;
   onStrokeStart?: () => void;
   onStrokeEnd?: () => void;
+  stampOverlayPixels?: { x: number; y: number; color: string }[] | null;
+  onWheelStampResize?: (delta: number) => void;
 };
 
 function drawGrid(
@@ -49,6 +51,7 @@ function drawGrid(
   viewportH: number,
   highlightedPixels?: Set<string>,
   moveOverlay?: { map: Map<string, string>; invalid: boolean } | null,
+  stampOverlay?: { map: Map<string, string>; invalid: boolean } | null,
   showHoverIndicator = true,
 ) {
   const dpr = window.devicePixelRatio || 1;
@@ -84,9 +87,15 @@ function drawGrid(
       ctx.fillStyle = color ?? "#ffffff";
       ctx.fillRect(px, py, cellSize, cellSize);
 
+      const stampColor = stampOverlay?.map.get(key);
+
       if (overlayColor) {
         ctx.globalAlpha = moveOverlay?.invalid ? 0.6 : 0.8;
         ctx.fillStyle = moveOverlay?.invalid ? "#ef4444" : overlayColor;
+        ctx.fillRect(px, py, cellSize, cellSize);
+      } else if (stampColor) {
+        ctx.globalAlpha = stampOverlay?.invalid ? 0.5 : 0.7;
+        ctx.fillStyle = stampOverlay?.invalid ? "#ef4444" : stampColor;
         ctx.fillRect(px, py, cellSize, cellSize);
       } else if (isHovered && hoverFill) {
         ctx.globalAlpha = color ? 1 : 0.7;
@@ -280,6 +289,8 @@ export function Canvas({
   onFreePaint,
   onStrokeStart,
   onStrokeEnd,
+  stampOverlayPixels,
+  onWheelStampResize,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
@@ -704,7 +715,8 @@ export function Canvas({
     selectedColor,
     highlightedPixels,
     moveOverlay,
-    showHoverIndicator: !movePreviewActive,
+    stampOverlayPixels,
+    showHoverIndicator: !movePreviewActive && !stampOverlayPixels?.length,
   });
 
   useEffect(() => {
@@ -716,7 +728,8 @@ export function Canvas({
       selectedColor,
       highlightedPixels,
       moveOverlay,
-      showHoverIndicator: !movePreviewActive,
+      stampOverlayPixels,
+      showHoverIndicator: !movePreviewActive && !stampOverlayPixels?.length,
     };
   }, [
     pixelMap,
@@ -727,6 +740,7 @@ export function Canvas({
     highlightedPixels,
     moveOverlay,
     movePreviewActive,
+    stampOverlayPixels,
   ]);
 
   const scheduleRedraw = useCallback(() => {
@@ -746,6 +760,24 @@ export function Canvas({
       }
       const d = drawRef.current;
       const dpr = window.devicePixelRatio || 1;
+      let computedStampOverlay: { map: Map<string, string>; invalid: boolean } | null = null;
+      const hoverCell = hoveredCellRef.current;
+      if (d.stampOverlayPixels?.length && hoverCell) {
+        let hasOOB = false;
+        const sMap = new Map<string, string>();
+        for (const px of d.stampOverlayPixels) {
+          const ax = hoverCell.x + px.x;
+          const ay = hoverCell.y + px.y;
+          if (ax < 0 || ay < 0 || ax >= d.width || ay >= d.height) {
+            hasOOB = true;
+            continue;
+          }
+          sMap.set(`${ax},${ay}`, px.color);
+        }
+        if (sMap.size > 0) {
+          computedStampOverlay = { map: sMap, invalid: hasOOB };
+        }
+      }
       drawGrid(
         ctx,
         d.pixelMap,
@@ -762,6 +794,7 @@ export function Canvas({
         canvas.height / dpr,
         d.highlightedPixels,
         d.moveOverlay,
+        computedStampOverlay,
         d.showHoverIndicator,
       );
     });
@@ -794,6 +827,7 @@ export function Canvas({
     scale,
     highlightedPixels,
     moveOverlay,
+    stampOverlayPixels,
     scheduleRedraw,
   ]);
 
@@ -854,6 +888,11 @@ export function Canvas({
     };
   }, []);
 
+  const stampWheelRef = useRef({ pixels: stampOverlayPixels, onResize: onWheelStampResize });
+  useEffect(() => {
+    stampWheelRef.current = { pixels: stampOverlayPixels, onResize: onWheelStampResize };
+  }, [stampOverlayPixels, onWheelStampResize]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
@@ -862,6 +901,12 @@ export function Canvas({
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       const isTrackpadPinch = event.ctrlKey === true;
+
+      if (!isTrackpadPinch && stampWheelRef.current.pixels?.length && stampWheelRef.current.onResize) {
+        const delta = event.deltaY > 0 ? -1 : 1;
+        stampWheelRef.current.onResize(delta);
+        return;
+      }
 
       if (isTrackpadPinch) {
         const rect = container.getBoundingClientRect();
@@ -1325,13 +1370,15 @@ export function Canvas({
       className={`relative h-full w-full overflow-hidden select-none touch-none ${
         isFreeModePainting
           ? "cursor-crosshair"
-          : movePreviewActive
-            ? isInteracting
-              ? "cursor-grabbing"
-              : "cursor-crosshair"
-            : isInteracting
-              ? "cursor-grabbing"
-              : "cursor-pointer"
+          : stampOverlayPixels?.length
+            ? "cursor-crosshair"
+            : movePreviewActive
+              ? isInteracting
+                ? "cursor-grabbing"
+                : "cursor-crosshair"
+              : isInteracting
+                ? "cursor-grabbing"
+                : "cursor-pointer"
       } ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
       <div
