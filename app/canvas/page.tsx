@@ -523,7 +523,11 @@ export default function CanvasPage() {
       if (payload.length === 0) {
         return;
       }
-      await commitPixels({ token, canvasId, pixels: payload });
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < payload.length; i += BATCH_SIZE) {
+        const batch = payload.slice(i, i + BATCH_SIZE);
+        await commitPixels({ token, canvasId, pixels: batch });
+      }
       dispatch({ type: "reset" });
     } catch (error: any) {
       alert(error?.message || "Commit failed");

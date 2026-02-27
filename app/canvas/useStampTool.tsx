@@ -12,7 +12,9 @@ type StampOptions = {
 
 const DEFAULT_STAMP_SRC = "/stamps/urza.png";
 const DEFAULT_STAMP_NAME = "urza.png";
-const STAMP_SIZE = 24;
+const DEFAULT_STAMP_SIZE = 24;
+const MIN_STAMP_SIZE = 8;
+const MAX_STAMP_SIZE = 128;
 const STAMP_ALPHA_CUTOFF = 20;
 const STAMP_FIT_MODE: "contain" | "stretch" = "contain";
 const STAMP_UNPREMULTIPLY = true;
@@ -46,6 +48,7 @@ export function useStampTool(options: StampOptions = {}) {
   const [stampName, setStampName] = useState(
     options.defaultName ?? DEFAULT_STAMP_NAME,
   );
+  const [stampSize, setStampSize] = useState(DEFAULT_STAMP_SIZE);
   const [stampPixels, setStampPixels] = useState<StampPixel[]>([]);
   const [stampReady, setStampReady] = useState(false);
   const [stampError, setStampError] = useState<string | null>(null);
@@ -64,8 +67,8 @@ export function useStampTool(options: StampOptions = {}) {
       }
 
       const canvas = document.createElement("canvas");
-      canvas.width = STAMP_SIZE;
-      canvas.height = STAMP_SIZE;
+      canvas.width = stampSize;
+      canvas.height = stampSize;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         setStampError("Stamp canvas not available");
@@ -76,27 +79,27 @@ export function useStampTool(options: StampOptions = {}) {
       if (STAMP_SMOOTHING && "imageSmoothingQuality" in ctx) {
         ctx.imageSmoothingQuality = "high";
       }
-      ctx.clearRect(0, 0, STAMP_SIZE, STAMP_SIZE);
+      ctx.clearRect(0, 0, stampSize, stampSize);
 
       if (STAMP_FIT_MODE === "stretch") {
-        ctx.drawImage(img, 0, 0, STAMP_SIZE, STAMP_SIZE);
+        ctx.drawImage(img, 0, 0, stampSize, stampSize);
       } else {
         const scale = Math.min(
-          STAMP_SIZE / size.width,
-          STAMP_SIZE / size.height,
+          stampSize / size.width,
+          stampSize / size.height,
         );
         const drawW = Math.max(1, Math.round(size.width * scale));
         const drawH = Math.max(1, Math.round(size.height * scale));
-        const offsetX = Math.floor((STAMP_SIZE - drawW) / 2);
-        const offsetY = Math.floor((STAMP_SIZE - drawH) / 2);
+        const offsetX = Math.floor((stampSize - drawW) / 2);
+        const offsetY = Math.floor((stampSize - drawH) / 2);
         ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
       }
 
-      const { data } = ctx.getImageData(0, 0, STAMP_SIZE, STAMP_SIZE);
+      const { data } = ctx.getImageData(0, 0, stampSize, stampSize);
       const pixels: StampPixel[] = [];
-      for (let y = 0; y < STAMP_SIZE; y += 1) {
-        for (let x = 0; x < STAMP_SIZE; x += 1) {
-          const idx = (y * STAMP_SIZE + x) * 4;
+      for (let y = 0; y < stampSize; y += 1) {
+        for (let x = 0; x < stampSize; x += 1) {
+          const idx = (y * stampSize + x) * 4;
           const a = data[idx + 3];
           if (a <= STAMP_ALPHA_CUTOFF) {
             continue;
@@ -160,7 +163,7 @@ export function useStampTool(options: StampOptions = {}) {
     return () => {
       cancelled = true;
     };
-  }, [stampSrc]);
+  }, [stampSrc, stampSize]);
 
   const handleFileChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,7 +209,10 @@ export function useStampTool(options: StampOptions = {}) {
     stampReady,
     stampError,
     stampName,
-    stampSize: STAMP_SIZE,
+    stampSize,
+    setStampSize,
+    minStampSize: MIN_STAMP_SIZE,
+    maxStampSize: MAX_STAMP_SIZE,
     fileInputRef,
     handleFileChange,
     openFileDialog,

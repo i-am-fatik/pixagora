@@ -31,6 +31,21 @@ export function StampToolControls({ stamp }: StampToolControlsProps) {
         <Stamp className="h-4 w-4" />
         <span className="hidden sm:inline">Razítko</span>
       </Button>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-muted-foreground tabular-nums w-12 text-right">
+          {stamp.stampSize}×{stamp.stampSize}
+        </span>
+        <input
+          type="range"
+          min={stamp.minStampSize}
+          max={stamp.maxStampSize}
+          step={1}
+          value={stamp.stampSize}
+          onChange={(e) => stamp.setStampSize(Number(e.target.value))}
+          className="w-20 accent-primary"
+          title={`Velikost razítka: ${stamp.stampSize}×${stamp.stampSize}`}
+        />
+      </div>
       <input
         ref={stamp.fileInputRef}
         type="file"
