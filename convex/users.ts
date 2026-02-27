@@ -1,4 +1,4 @@
-import { query, internalQuery } from "./_generated/server";
+import { query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { computeCredits, computeTotalPaidCzk } from "./credits";
 
@@ -33,6 +33,20 @@ export const getPaymentSummary = query({
       canOverwrite: totalPaidCzk >= 666,
       email: user.email,
     };
+  },
+});
+
+export const setAdmin = internalMutation({
+  args: { email: v.string(), isAdmin: v.boolean() },
+  handler: async (ctx, { email, isAdmin }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .unique();
+    if (!user) {
+      throw new Error(`User with email ${email} not found`);
+    }
+    await ctx.db.patch(user._id, { isAdmin });
   },
 });
 

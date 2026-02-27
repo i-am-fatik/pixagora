@@ -40,7 +40,7 @@ export const list = query({
     const entries = [];
     for (const [userId, count] of counts.entries()) {
       const user = await ctx.db.get(userId);
-      if (!user) {
+      if (!user || user.isAdmin) {
         continue;
       }
       entries.push({
@@ -78,7 +78,7 @@ export const getRank = query({
     const entries = [];
     for (const [entryUserId, count] of counts.entries()) {
       const user = await ctx.db.get(entryUserId);
-      if (!user) {
+      if (!user || user.isAdmin) {
         continue;
       }
       entries.push({

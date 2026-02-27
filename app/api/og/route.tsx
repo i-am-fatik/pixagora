@@ -62,7 +62,7 @@ export async function GET() {
 
     const client = new ConvexHttpClient(convexUrl);
     const canvases = await client.query(api.canvases.getAll, {});
-    const canvas = canvases?.[0];
+    const canvas = canvases?.[canvases.length - 1];
     if (!canvas) {
       throw new Error("No canvas found");
     }

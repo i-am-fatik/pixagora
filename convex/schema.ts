@@ -10,6 +10,7 @@ export default defineSchema({
     nicknameLower: v.optional(v.string()),
     nicknameColor: v.optional(v.string()),
     showEmail: v.optional(v.boolean()),
+    isAdmin: v.optional(v.boolean()),
     lastChatMessageAt: v.optional(v.number()),
     chatWindowStart: v.optional(v.number()),
     chatWindowCount: v.optional(v.number()),
