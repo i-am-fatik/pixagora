@@ -24,7 +24,6 @@ type CanvasReelsProps = {
   renderItem: (index: number) => ReactNode;
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
-  enableTouchSwipe?: boolean;
 };
 
 const HINT_STORAGE_KEY = "pixagora-reels-hint-dismissed";
@@ -37,7 +36,6 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
       renderItem,
       initialIndex = 0,
       onIndexChange,
-      enableTouchSwipe = true,
     },
     ref,
   ) {
@@ -48,8 +46,15 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [containerHeight, setContainerHeight] = useState(0);
-  const [hintDismissed, setHintDismissed] = useState(false);
-  const [showHint, setShowHint] = useState(false);
+  const [hintDismissed, setHintDismissed] = useState(() => {
+    if (typeof window === "undefined") { return false; }
+    try {
+      return window.localStorage.getItem(HINT_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [hintTimerDone, setHintTimerDone] = useState(false);
   const startYRef = useRef(0);
   const activeIndexRef = useRef(activeIndex);
   const dragOffsetRef = useRef(0);
@@ -58,7 +63,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   const heightRef = useRef(0);
 
   const hasMultiple = count > 1;
-  const touchEnabled = enableTouchSwipe && hasMultiple;
+  const touchEnabled = false;
 
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
@@ -90,7 +95,9 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      return;
+    }
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
@@ -102,43 +109,18 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (activeIndexRef.current > count - 1) {
-      updateIndex(count - 1);
-    }
-  }, [count, updateIndex]);
+  // Clamp activeIndex when count shrinks
+  if (count > 0 && activeIndex > count - 1) {
+    setActiveIndex(Math.max(0, count - 1));
+  }
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const dismissed = window.localStorage.getItem(HINT_STORAGE_KEY) === "1";
-      setHintDismissed(dismissed);
-    } catch {
-      // ignore storage access errors
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!hasMultiple || activeIndex !== 0 || hintDismissed) {
-      setShowHint(false);
-      return;
-    }
+    if (!hasMultiple || hintDismissed) { return; }
     const timeoutId = window.setTimeout(() => {
-      setShowHint(true);
+      setHintTimerDone(true);
     }, HINT_DELAY_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [activeIndex, hasMultiple, hintDismissed]);
-
-  useEffect(() => {
-    if (activeIndex === 0 || hintDismissed) return;
-    setHintDismissed(true);
-    setShowHint(false);
-    try {
-      window.localStorage.setItem(HINT_STORAGE_KEY, "1");
-    } catch {
-      // ignore storage access errors
-    }
-  }, [activeIndex, hintDismissed]);
+  }, [hasMultiple, hintDismissed]);
 
   const setOffset = (value: number) => {
     dragOffsetRef.current = value;
@@ -157,14 +139,18 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   };
 
   const handleMove = (clientY: number) => {
-    if (!isDraggingRef.current) return;
+    if (!isDraggingRef.current) {
+      return;
+    }
     const delta = clientY - startYRef.current;
     const height = getHeight();
     setOffset(clamp(delta, -height * 0.6, height * 0.6));
   };
 
   const handleEnd = useCallback(() => {
-    if (!isDraggingRef.current) return;
+    if (!isDraggingRef.current) {
+      return;
+    }
     const height = getHeight();
     const threshold = Math.max(60, height * 0.12);
     if (Math.abs(dragOffsetRef.current) >= threshold) {
@@ -180,8 +166,16 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
       setOffset(0);
       setDragging(false);
       updateIndex(nextIndex);
+      if (!hintDismissed && nextIndex !== 0) {
+        setHintDismissed(true);
+        try {
+          window.localStorage.setItem(HINT_STORAGE_KEY, "1");
+        } catch {
+          // ignore storage access errors
+        }
+      }
     },
-    [updateIndex],
+    [updateIndex, hintDismissed],
   );
 
   useImperativeHandle(
@@ -197,8 +191,12 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!hasMultiple) return;
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (!hasMultiple) {
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (
         target &&
@@ -222,7 +220,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     };
   }, [goToIndex, hasMultiple]);
 
-  const height = getHeight();
+  const height = containerHeight || 1;
   const baseTranslate = -(activeIndex * height) + dragOffset;
   const clampedTranslate = clamp(baseTranslate, -height * (count - 1), 0);
   const translate = `translateY(${clampedTranslate}px)`;
@@ -232,7 +230,9 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   );
 
   const handleLabelClick = () => {
-    if (!hasMultiple) return;
+    if (!hasMultiple) {
+      return;
+    }
     const nextIndex = activeIndexRef.current + 1;
     goToIndex(nextIndex > count - 1 ? 0 : nextIndex);
   };
@@ -251,41 +251,53 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden touch-none select-none"
+      className={`relative h-full w-full overflow-hidden touch-none select-none ${isDragging ? "cursor-move" : "cursor-pointer"}`}
       {...touchHandlers}
     >
       <button
         type="button"
         onClick={handleLabelClick}
         disabled={!hasMultiple}
-        className="absolute left-4 top-4 z-10 rounded-full border bg-background/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition hover:text-foreground disabled:opacity-60"
+        className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full border border-black/10 bg-background/60 px-3 py-2 text-[11px] font-medium text-foreground shadow-sm transition hover:text-foreground disabled:cursor-not-allowed dark:border-white/10 dark:text-white dark:hover:text-white"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onPointerMove={(event) => event.stopPropagation()}
+        onPointerCancel={(event) => event.stopPropagation()}
         aria-label="Přepnout plátno"
       >
-        {reelLabel}
+        <span>{reelLabel}</span>
+        {hasMultiple && (
+          <span className="flex flex-col leading-none text-muted-foreground/70">
+            <ChevronUp className="h-3 w-3" />
+            <ChevronDown className="-mt-1 h-3 w-3" />
+          </span>
+        )}
       </button>
 
-      <div className="absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-2 md:flex">
-        <button
-          type="button"
-          aria-label="Předchozí plátno"
-          onClick={() => goToIndex(activeIndex - 1)}
-          disabled={activeIndex === 0}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
-        >
-          <ChevronUp className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Další plátno"
-          onClick={() => goToIndex(activeIndex + 1)}
-          disabled={activeIndex >= count - 1}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
-        >
-          <ChevronDown className="h-4 w-4" />
-        </button>
-      </div>
+      {hasMultiple && (
+        <div className="absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-2 md:flex">
+          <button
+            type="button"
+            aria-label="Předchozí plátno"
+            onClick={() => goToIndex(activeIndex - 1)}
+            disabled={activeIndex === 0}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Další plátno"
+            onClick={() => goToIndex(activeIndex + 1)}
+            disabled={activeIndex >= count - 1}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background/80 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
-      {showHint && hasMultiple && activeIndex === 0 && (
+      {touchEnabled && hintTimerDone && hasMultiple && activeIndex === 0 && !hintDismissed && (
         <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full bg-background/65 px-3 py-2 text-[11px] font-medium text-muted-foreground shadow-sm md:hidden">
           <div className="flex flex-col items-center leading-none text-muted-foreground/80">
             <ChevronUp

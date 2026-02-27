@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "convex/react";
@@ -25,7 +25,7 @@ function Logo() {
           />
         ))}
       </div>
-      <span className="text-base font-semibold tracking-tight">Pixagora</span>
+      <span className="text-base font-semibold tracking-tight">PixAgora</span>
     </div>
   );
 }
@@ -71,69 +71,73 @@ function ReplayPageInner() {
 
   const totalSteps = sortedTransactions?.length ?? 0;
 
+  const BASE_TX_DURATION = 2000; // ms per transaction at 1x speed
+
   const [stepIndex, setStepIndex] = useState(0);
+  const [pixelOffset, setPixelOffset] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<Speed>(1);
+  const [prevCanvasId, setPrevCanvasId] = useState(canvasId);
 
   type Pixel = { x: number; y: number; color: string };
-  const pixelMapRef = useRef(new Map<string, Pixel>());
-  const appliedUpToRef = useRef(0);
 
-  useEffect(() => {
+  if (canvasId !== prevCanvasId) {
+    setPrevCanvasId(canvasId);
     setStepIndex(0);
+    setPixelOffset(0);
     setIsPlaying(false);
-    pixelMapRef.current.clear();
-    appliedUpToRef.current = 0;
-  }, [canvasId]);
+  }
 
   useEffect(() => {
-    if (isPlaying && stepIndex >= totalSteps && totalSteps > 0) {
-      setIsPlaying(false);
-    }
-  }, [stepIndex, totalSteps, isPlaying]);
-
-  useEffect(() => {
-    if (!isPlaying || totalSteps === 0) {
+    if (!isPlaying || !sortedTransactions || stepIndex >= sortedTransactions.length) {
       return;
     }
-    const interval = setInterval(() => {
-      setStepIndex((prev) => Math.min(prev + 1, totalSteps));
-    }, 500 / speed);
-    return () => clearInterval(interval);
-  }, [isPlaying, speed, totalSteps]);
+    const tx = sortedTransactions[stepIndex];
+    const total = tx.changes.length;
+    const delay = (BASE_TX_DURATION / Math.max(1, total)) / speed;
+
+    const timer = setTimeout(() => {
+      const nextOffset = pixelOffset + 1;
+      if (nextOffset >= total) {
+        const nextStep = stepIndex + 1;
+        setStepIndex(nextStep);
+        setPixelOffset(0);
+        if (nextStep >= sortedTransactions.length) {
+          setIsPlaying(false);
+        }
+      } else {
+        setPixelOffset(nextOffset);
+      }
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [isPlaying, stepIndex, pixelOffset, speed, sortedTransactions]);
 
   const displayPixels = useMemo(() => {
     if (!sortedTransactions) {
       return [];
     }
-    const target = Math.min(stepIndex, sortedTransactions.length);
-    const map = pixelMapRef.current;
-    const applied = appliedUpToRef.current;
+    const map = new Map<string, Pixel>();
 
-    if (target === 0) {
-      map.clear();
-      appliedUpToRef.current = 0;
-      return [];
-    }
-
-    if (target < applied) {
-      map.clear();
-      for (let i = 0; i < target; i++) {
-        for (const c of sortedTransactions[i].changes) {
-          map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
-        }
-      }
-    } else {
-      for (let i = applied; i < target; i++) {
-        for (const c of sortedTransactions[i].changes) {
-          map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
-        }
+    // All completed transactions
+    for (let i = 0; i < stepIndex && i < sortedTransactions.length; i++) {
+      for (const c of sortedTransactions[i].changes) {
+        map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
       }
     }
 
-    appliedUpToRef.current = target;
+    // Partially visible current transaction
+    if (stepIndex < sortedTransactions.length && pixelOffset > 0) {
+      const tx = sortedTransactions[stepIndex];
+      const count = Math.min(pixelOffset, tx.changes.length);
+      for (let j = 0; j < count; j++) {
+        const c = tx.changes[j];
+        map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
+      }
+    }
+
     return Array.from(map.values());
-  }, [sortedTransactions, stepIndex]);
+  }, [sortedTransactions, stepIndex, pixelOffset]);
 
   if (!canvasIdParam || !canvasId) {
     return (
@@ -161,7 +165,7 @@ function ReplayPageInner() {
           <div className="flex flex-1 items-center justify-center">
             {canvas && (
               <span className="text-sm font-medium text-muted-foreground">
-                {canvas.name} — Přehrávání
+                {canvas.name}
               </span>
             )}
           </div>
@@ -203,20 +207,25 @@ function ReplayPageInner() {
           } else {
             if (stepIndex >= totalSteps) {
               setStepIndex(0);
+              setPixelOffset(0);
             }
+            setPixelOffset(0);
             setIsPlaying(true);
           }
         }}
         onStepBack={() => {
           setIsPlaying(false);
+          setPixelOffset(0);
           setStepIndex((prev) => Math.max(0, prev - 1));
         }}
         onStepForward={() => {
           setIsPlaying(false);
+          setPixelOffset(0);
           setStepIndex((prev) => Math.min(totalSteps, prev + 1));
         }}
         onSeek={(index) => {
           setIsPlaying(false);
+          setPixelOffset(0);
           setStepIndex(index);
         }}
         onSpeedChange={setSpeed}

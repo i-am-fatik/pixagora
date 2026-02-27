@@ -15,11 +15,53 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = (() => {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!raw) {
+    return "https://pixagora.urza.cz";
+  }
+  try {
+    return new URL(raw).toString();
+  } catch {
+    return "https://pixagora.urza.cz";
+  }
+})();
+
 export const metadata: Metadata = {
-  title: "Pixagora",
-  description: "Realtime pixel canvas",
-  icons: {
-    icon: "/convex.svg",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "PixAgora",
+    template: "%s | PixAgora",
+  },
+  description:
+    "Společné pixelové plátno do knihy. Kup pixely, kresli a tvoř s komunitou.",
+  openGraph: {
+    type: "website",
+    siteName: "PixAgora",
+    title: "PixAgora",
+    description:
+      "Společné pixelové plátno do knihy. Kup pixely, kresli a tvoř s komunitou.",
+    url: "/canvas",
+    images: [
+      {
+        url: "/api/og",
+        width: 1200,
+        height: 630,
+        alt: "PixAgora",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PixAgora",
+    description:
+      "Společné pixelové plátno do knihy. Kup pixely, kresli a tvoř s komunitou.",
+    images: ["/api/og"],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "PixAgora",
   },
 };
 

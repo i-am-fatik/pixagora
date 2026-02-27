@@ -5,14 +5,22 @@ export default defineSchema({
   users: defineTable({
     email: v.string(),
     token: v.string(),
-    credits: v.number(),
+    magicLinkSentAt: v.optional(v.number()),
+    nickname: v.optional(v.string()),
+    nicknameLower: v.optional(v.string()),
+    nicknameColor: v.optional(v.string()),
+    showEmail: v.optional(v.boolean()),
+    lastChatMessageAt: v.optional(v.number()),
+    chatWindowStart: v.optional(v.number()),
+    chatWindowCount: v.optional(v.number()),
+    lastChatMessageText: v.optional(v.string()),
   })
     .index("by_email", ["email"])
-    .index("by_token", ["token"]),
+    .index("by_token", ["token"])
+    .index("by_nickname_lower", ["nicknameLower"]),
 
   payments: defineTable({
     userId: v.id("users"),
-    amountSats: v.number(),
     creditsDelta: v.number(),
     createdAt: v.number(),
     source: v.optional(v.string()),
@@ -21,7 +29,9 @@ export default defineSchema({
     amountCzk: v.optional(v.number()),
     reward: v.optional(v.string()),
     purchasedAt: v.optional(v.number()),
-  }).index("by_source_trxId", ["source", "trxId"]),
+  })
+    .index("by_source_trxId", ["source", "trxId"])
+    .index("by_user", ["userId"]),
 
   canvases: defineTable({
     name: v.string(),
@@ -29,7 +39,9 @@ export default defineSchema({
     height: v.number(),
     colors: v.array(v.string()),
     pixelPrice: v.number(),
-    unlockThreshold: v.number(),
+    unlockThreshold: v.optional(v.number()),
+    enforceColors: v.optional(v.boolean()),
+    locked: v.optional(v.boolean()),
     order: v.number(),
     createdAt: v.number(),
     createdBy: v.optional(v.id("users")),
@@ -40,11 +52,13 @@ export default defineSchema({
     canvasId: v.id("canvases"),
     userId: v.id("users"),
     timestamp: v.number(),
+    cost: v.number(),
     changes: v.array(
       v.object({
         x: v.number(),
         y: v.number(),
         color: v.string(),
+        price: v.number(),
         previousColor: v.optional(v.string()),
       })
     ),
@@ -63,4 +77,27 @@ export default defineSchema({
     userId: v.id("users"),
     updatedAt: v.number(),
   }).index("by_canvas_xy", ["canvasId", "x", "y"]),
+
+  chatMessages: defineTable({
+    userId: v.id("users"),
+    kind: v.union(v.literal("user"), v.literal("reward"), v.literal("commit")),
+    text: v.string(),
+    createdAt: v.number(),
+    authorName: v.string(),
+    authorColor: v.string(),
+    authorEmail: v.optional(v.string()),
+    commitId: v.optional(v.id("transactions")),
+    commitCanvasId: v.optional(v.id("canvases")),
+    commitPixelCount: v.optional(v.number()),
+    commitActorName: v.optional(v.string()),
+    commitActorEmail: v.optional(v.string()),
+    rewardSource: v.optional(v.string()),
+    rewardAmountCzk: v.optional(v.number()),
+    rewardCreditsDelta: v.optional(v.number()),
+    rewardName: v.optional(v.string()),
+    rewardDisplayName: v.optional(v.string()),
+    rewardDisplayEmail: v.optional(v.string()),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_user_createdAt", ["userId", "createdAt"]),
 });

@@ -6,10 +6,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
+import { PixelPreview } from "./PixelPreview";
 
 type Pixel = {
   x: number;
@@ -24,6 +24,13 @@ type CanvasProps = {
   selectedColor: string;
   onPixelClick: (x: number, y: number) => void;
   onEdgeSwipe?: (direction: "next" | "prev") => void;
+  highlightedPixels?: Set<string>;
+  movePreviewPixels?: Pixel[] | null;
+  movePreviewActive?: boolean;
+  isFreeModePainting?: boolean;
+  onFreePaint?: (x: number, y: number) => void;
+  onStrokeStart?: () => void;
+  onStrokeEnd?: () => void;
 };
 
 function drawGrid(
@@ -34,11 +41,15 @@ function drawGrid(
   cellSize: number,
   gap: number,
   hovered: { x: number; y: number } | null,
+  hoverPointer: { x: number; y: number } | null,
   selectedColor: string,
   translate: { x: number; y: number },
   scale: number,
   viewportW: number,
   viewportH: number,
+  highlightedPixels?: Set<string>,
+  moveOverlay?: { map: Map<string, string>; invalid: boolean } | null,
+  showHoverIndicator = true,
 ) {
   const dpr = window.devicePixelRatio || 1;
   ctx.save();
@@ -48,6 +59,7 @@ function drawGrid(
   ctx.scale(scale, scale);
 
   const step = cellSize + gap;
+  const hoverFill = cellSize * scale >= 18;
   const invScale = 1 / scale;
   const visLeft = -translate.x * invScale;
   const visTop = -translate.y * invScale;
@@ -66,10 +78,40 @@ function drawGrid(
       const key = `${x},${y}`;
       const color = pixelMap.get(key);
       const isHovered = hovered?.x === x && hovered?.y === y;
+      const overlayColor = moveOverlay?.map.get(key);
 
-      ctx.globalAlpha = isHovered && !color ? 0.7 : 1;
-      ctx.fillStyle = isHovered ? selectedColor : (color ?? "#ffffff");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color ?? "#ffffff";
       ctx.fillRect(px, py, cellSize, cellSize);
+
+      if (overlayColor) {
+        ctx.globalAlpha = moveOverlay?.invalid ? 0.6 : 0.8;
+        ctx.fillStyle = moveOverlay?.invalid ? "#ef4444" : overlayColor;
+        ctx.fillRect(px, py, cellSize, cellSize);
+      } else if (isHovered && hoverFill) {
+        ctx.globalAlpha = color ? 1 : 0.7;
+        ctx.fillStyle = selectedColor;
+        ctx.fillRect(px, py, cellSize, cellSize);
+      } else if (isHovered) {
+        const outlineWidth = Math.max(1 / scale, 0.75);
+        const inset = outlineWidth / 2;
+        ctx.lineWidth = outlineWidth;
+        ctx.strokeStyle = "rgba(0,0,0,0.85)";
+        ctx.strokeRect(
+          px + inset,
+          py + inset,
+          cellSize - outlineWidth,
+          cellSize - outlineWidth,
+        );
+        ctx.lineWidth = outlineWidth * 0.6;
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.strokeRect(
+          px + inset,
+          py + inset,
+          cellSize - outlineWidth,
+          cellSize - outlineWidth,
+        );
+      }
     }
   }
 
@@ -92,8 +134,63 @@ function drawGrid(
     ctx.lineTo(px, y1);
   }
   ctx.stroke();
+
+  if (highlightedPixels && highlightedPixels.size > 0) {
+    ctx.globalAlpha = 1;
+    const borderWidth = Math.max(2 / scale, 1);
+    const inset = borderWidth / 2;
+    const pulseAlpha = 0.15 + 0.15 * Math.sin((Date.now() / 750) * Math.PI);
+    for (let y = startY; y < endY; y++) {
+      for (let x = startX; x < endX; x++) {
+        const key = `${x},${y}`;
+        if (!highlightedPixels.has(key)) {
+          continue;
+        }
+        const px = x * step;
+        const py = y * step;
+        const bx = px + inset;
+        const by = py + inset;
+        const size = cellSize - borderWidth;
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = borderWidth;
+        ctx.strokeStyle = "#000000";
+        ctx.strokeRect(bx, by, size, size);
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = borderWidth * 0.6;
+        ctx.strokeRect(bx, by, size, size);
+
+        ctx.globalAlpha = pulseAlpha;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(px, py, cellSize, cellSize);
+      }
+    }
+  }
+
   ctx.globalAlpha = 1;
   ctx.restore();
+
+  if (showHoverIndicator && hovered && hoverPointer && !hoverFill) {
+    const radius = 6;
+    const offset = 14;
+    let cx = hoverPointer.x + offset;
+    let cy = hoverPointer.y + offset;
+    if (cx + radius + 2 > viewportW) {
+      cx = hoverPointer.x - offset;
+    }
+    if (cy + radius + 2 > viewportH) {
+      cy = hoverPointer.y - offset;
+    }
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = selectedColor;
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function hitTest(
@@ -106,6 +203,7 @@ function hitTest(
   gap: number,
   gridW: number,
   gridH: number,
+  cellInsetFraction?: number,
 ): { x: number; y: number } | null {
   const localX = (clientX - containerRect.left - translate.x) / scale;
   const localY = (clientY - containerRect.top - translate.y) / scale;
@@ -120,7 +218,52 @@ function hitTest(
   if (inCellX > cellSize || inCellY > cellSize) {
     return null;
   }
+  if (cellInsetFraction != null && cellInsetFraction > 0) {
+    const margin = cellSize * cellInsetFraction;
+    if (
+      inCellX < margin ||
+      inCellX > cellSize - margin ||
+      inCellY < margin ||
+      inCellY > cellSize - margin
+    ) {
+      return null;
+    }
+  }
   return { x: gx, y: gy };
+}
+
+/** Bresenham line from (x0,y0) to (x1,y1), excluding the start point. */
+function lineCells(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  let dx = Math.abs(x1 - x0);
+  let dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  let cx = x0;
+  let cy = y0;
+  for (;;) {
+    if (cx === x1 && cy === y1) {
+      cells.push({ x: cx, y: cy });
+      break;
+    }
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      cx += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      cy += sy;
+    }
+    cells.push({ x: cx, y: cy });
+  }
+  return cells;
 }
 
 export function Canvas({
@@ -130,9 +273,17 @@ export function Canvas({
   selectedColor,
   onPixelClick,
   onEdgeSwipe,
+  highlightedPixels,
+  movePreviewPixels,
+  movePreviewActive = false,
+  isFreeModePainting = false,
+  onFreePaint,
+  onStrokeStart,
+  onStrokeEnd,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredCellRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [scale, setScale] = useState(1);
@@ -151,8 +302,6 @@ export function Canvas({
     startY: number;
     startTranslate: { x: number; y: number };
   } | null>(null);
-  const swipeRef = useRef<{ startY: number } | null>(null);
-  const allowSwipeRef = useRef(false);
   const edgeSwipeTriggeredRef = useRef(false);
   const edgeSwipeTimeoutRef = useRef<number | null>(null);
   const lastTapRef = useRef<{ time: number; x: number; y: number }>({
@@ -163,13 +312,150 @@ export function Canvas({
   const [edgeSwipeFeedback, setEdgeSwipeFeedback] = useState<
     "next" | "prev" | null
   >(null);
+  const [previewPos, setPreviewPos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [previewCell, setPreviewCell] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const previewRafRef = useRef<number | null>(null);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  const [isPreviewDragging, setIsPreviewDragging] = useState(false);
+  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
   const clickOriginRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef(0);
   const needsDrawRef = useRef(false);
+  const isPaintStrokeRef = useRef(false);
+  const lastPaintedCellRef = useRef<{ x: number; y: number } | null>(null);
+  const didPaintStrokeRef = useRef(false);
 
-  const MIN_ZOOM = 1;
-  const MAX_ZOOM = 8;
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, value));
+
+  const MIN_ZOOM = 0.8;
+  const MAX_ZOOM = 12;
   const ZOOM_STEP = 1.5;
+  /** Fraction of cell size (0..0.5) by which pointer must be inside the cell to count for free paint. Reduces accidental diagonal paints. */
+  const FREE_PAINT_CELL_INSET = 0.1;
+  const [fitScale] = useState(1);
+  const PREVIEW_MAX = 120;
+  const PREVIEW_MARGIN = 12;
+  const previewPixels = useMemo(() => {
+    if (!movePreviewPixels || movePreviewPixels.length === 0) {
+      return [];
+    }
+    if (!movePreviewActive || !previewCell) {
+      return movePreviewPixels;
+    }
+    return movePreviewPixels.map((px) => {
+      const absX = previewCell.x + px.x;
+      const absY = previewCell.y + px.y;
+      const outOfBounds = absX < 0 || absY < 0 || absX >= width || absY >= height;
+      return outOfBounds ? { ...px, color: "#ef4444" } : px;
+    });
+  }, [height, movePreviewActive, movePreviewPixels, previewCell, width]);
+  const moveOverlay = useMemo(() => {
+    if (
+      !movePreviewActive ||
+      !previewCell ||
+      !movePreviewPixels?.length ||
+      (isCoarsePointer && !isPreviewDragging)
+    ) {
+      return null;
+    }
+    let hasOutOfBounds = false;
+    const map = new Map<string, string>();
+    for (const px of movePreviewPixels) {
+      const absX = previewCell.x + px.x;
+      const absY = previewCell.y + px.y;
+      if (absX < 0 || absY < 0 || absX >= width || absY >= height) {
+        hasOutOfBounds = true;
+        continue;
+      }
+      map.set(`${absX},${absY}`, px.color);
+    }
+    if (map.size === 0) {
+      return null;
+    }
+    return { map, invalid: hasOutOfBounds };
+  }, [
+    height,
+    isCoarsePointer,
+    isPreviewDragging,
+    movePreviewActive,
+    movePreviewPixels,
+    previewCell,
+    width,
+  ]);
+  const getDockPosition = useCallback(() => {
+    const dockTop = Math.max(
+      PREVIEW_MARGIN,
+      Math.min(72, containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN),
+    );
+    const dockLeft = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    return { left: dockLeft, top: dockTop };
+  }, [containerSize.height, containerSize.width]);
+
+  const previewStyle = useMemo(() => {
+    if (isCoarsePointer) {
+      const dock = getDockPosition();
+      if (!isPreviewDragging || !previewPos) {
+        return dock;
+      }
+      const maxX = Math.max(
+        PREVIEW_MARGIN,
+        containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+      );
+      const maxY = Math.max(
+        PREVIEW_MARGIN,
+        containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
+      );
+      return {
+        left: clamp(previewPos.x, PREVIEW_MARGIN, maxX),
+        top: clamp(previewPos.y, PREVIEW_MARGIN, maxY),
+      };
+    }
+    if (!previewPos) {
+      return null;
+    }
+    const padding = 12;
+    let left = previewPos.x + padding;
+    let top = previewPos.y + padding;
+    const maxX = containerSize.width - PREVIEW_MAX - 4;
+    const maxY = containerSize.height - PREVIEW_MAX - 4;
+    if (left > maxX) {
+      left = previewPos.x - padding - PREVIEW_MAX;
+    }
+    if (top > maxY) {
+      top = previewPos.y - padding - PREVIEW_MAX;
+    }
+    left = Math.max(4, Math.min(left, maxX));
+    top = Math.max(4, Math.min(top, maxY));
+    return { left, top };
+  }, [
+    containerSize.height,
+    containerSize.width,
+    getDockPosition,
+    isCoarsePointer,
+    isPreviewDragging,
+    previewPos,
+  ]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsCoarsePointer(media.matches);
+    update();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -208,8 +494,10 @@ export function Canvas({
     const totalGapY = CELL_GAP * Math.max(0, height - 1);
     const availableWidth = Math.max(0, containerSize.width - totalGapX);
     const availableHeight = Math.max(0, containerSize.height - totalGapY);
-    return Math.min(availableWidth / width, availableHeight / height);
-  }, [containerSize, height, width]);
+    return (
+      Math.min(availableWidth / width, availableHeight / height) * fitScale
+    );
+  }, [containerSize, fitScale, height, width]);
 
   const baseSize = useMemo(
     () => ({
@@ -227,9 +515,6 @@ export function Canvas({
     return map;
   }, [pixels]);
 
-  const clamp = (value: number, min: number, max: number) =>
-    Math.min(max, Math.max(min, value));
-
   const clampTranslate = useCallback(
     (x: number, y: number, nextScale: number) => {
       if (!containerSize.width || !containerSize.height) {
@@ -237,17 +522,35 @@ export function Canvas({
       }
       const contentWidth = baseSize.width * nextScale;
       const contentHeight = baseSize.height * nextScale;
+      const allowSlack = nextScale < 1;
+      const edgePad = allowSlack ? (isCoarsePointer ? 48 : 32) : 0;
 
       let minX = containerSize.width - contentWidth;
       let maxX = 0;
       if (contentWidth <= containerSize.width) {
-        minX = maxX = (containerSize.width - contentWidth) / 2;
+        if (allowSlack) {
+          minX = -edgePad;
+          maxX = containerSize.width - contentWidth + edgePad;
+        } else {
+          minX = maxX = (containerSize.width - contentWidth) / 2;
+        }
+      } else if (allowSlack) {
+        minX -= edgePad;
+        maxX = edgePad;
       }
 
       let minY = containerSize.height - contentHeight;
       let maxY = 0;
       if (contentHeight <= containerSize.height) {
-        minY = maxY = (containerSize.height - contentHeight) / 2;
+        if (allowSlack) {
+          minY = -edgePad;
+          maxY = containerSize.height - contentHeight + edgePad;
+        } else {
+          minY = maxY = (containerSize.height - contentHeight) / 2;
+        }
+      } else if (allowSlack) {
+        minY -= edgePad;
+        maxY = edgePad;
       }
 
       return {
@@ -260,6 +563,7 @@ export function Canvas({
       baseSize.width,
       containerSize.height,
       containerSize.width,
+      isCoarsePointer,
     ],
   );
 
@@ -267,17 +571,35 @@ export function Canvas({
     (nextScale: number) => {
       const contentWidth = baseSize.width * nextScale;
       const contentHeight = baseSize.height * nextScale;
+      const allowSlack = nextScale < 1;
+      const edgePad = allowSlack ? (isCoarsePointer ? 48 : 32) : 0;
 
       let minX = containerSize.width - contentWidth;
       let maxX = 0;
       if (contentWidth <= containerSize.width) {
-        minX = maxX = (containerSize.width - contentWidth) / 2;
+        if (allowSlack) {
+          minX = -edgePad;
+          maxX = containerSize.width - contentWidth + edgePad;
+        } else {
+          minX = maxX = (containerSize.width - contentWidth) / 2;
+        }
+      } else if (allowSlack) {
+        minX -= edgePad;
+        maxX = edgePad;
       }
 
       let minY = containerSize.height - contentHeight;
       let maxY = 0;
       if (contentHeight <= containerSize.height) {
-        minY = maxY = (containerSize.height - contentHeight) / 2;
+        if (allowSlack) {
+          minY = -edgePad;
+          maxY = containerSize.height - contentHeight + edgePad;
+        } else {
+          minY = maxY = (containerSize.height - contentHeight) / 2;
+        }
+      } else if (allowSlack) {
+        minY -= edgePad;
+        maxY = edgePad;
       }
 
       return { minX, maxX, minY, maxY };
@@ -287,6 +609,7 @@ export function Canvas({
       baseSize.width,
       containerSize.height,
       containerSize.width,
+      isCoarsePointer,
     ],
   );
 
@@ -299,7 +622,10 @@ export function Canvas({
     [clampTranslate],
   );
 
-  const clampScale = (value: number) => clamp(value, MIN_ZOOM, MAX_ZOOM);
+  const clampScale = useCallback(
+    (value: number) => clamp(value, MIN_ZOOM, MAX_ZOOM),
+    [],
+  );
 
   const zoomTo = useCallback(
     (nextScale: number, focusX: number, focusY: number) => {
@@ -315,18 +641,28 @@ export function Canvas({
       translateRef.current = clampedTranslate;
       setTranslate(clampedTranslate);
     },
-    [clampTranslate],
+    [clampScale, clampTranslate],
   );
 
   const resetView = useCallback(() => {
     if (!containerSize.width || !containerSize.height) {
       return;
     }
-    const clamped = clampTranslate(0, 0, MIN_ZOOM);
-    setScale(MIN_ZOOM);
+    const contentWidth = baseSize.width * 1;
+    const contentHeight = baseSize.height * 1;
+    const centerX = (containerSize.width - contentWidth) / 2;
+    const centerY = (containerSize.height - contentHeight) / 2;
+    const clamped = clampTranslate(centerX, centerY, 1);
+    setScale(1);
     translateRef.current = clamped;
     setTranslate(clamped);
-  }, [clampTranslate, containerSize.height, containerSize.width]);
+  }, [
+    baseSize.height,
+    baseSize.width,
+    clampTranslate,
+    containerSize.height,
+    containerSize.width,
+  ]);
 
   const zoomBy = useCallback(
     (direction: 1 | -1) => {
@@ -366,14 +702,32 @@ export function Canvas({
     height,
     baseCellSize,
     selectedColor,
+    highlightedPixels,
+    moveOverlay,
+    showHoverIndicator: !movePreviewActive,
   });
-  drawRef.current = {
+
+  useEffect(() => {
+    drawRef.current = {
+      pixelMap,
+      width,
+      height,
+      baseCellSize,
+      selectedColor,
+      highlightedPixels,
+      moveOverlay,
+      showHoverIndicator: !movePreviewActive,
+    };
+  }, [
     pixelMap,
     width,
     height,
     baseCellSize,
     selectedColor,
-  };
+    highlightedPixels,
+    moveOverlay,
+    movePreviewActive,
+  ]);
 
   const scheduleRedraw = useCallback(() => {
     if (needsDrawRef.current) {
@@ -400,11 +754,15 @@ export function Canvas({
         d.baseCellSize,
         CELL_GAP,
         hoveredCellRef.current,
+        hoverPointerRef.current,
         d.selectedColor,
         translateRef.current,
         scaleRef.current,
         canvas.width / dpr,
         canvas.height / dpr,
+        d.highlightedPixels,
+        d.moveOverlay,
+        d.showHoverIndicator,
       );
     });
   }, []);
@@ -426,14 +784,54 @@ export function Canvas({
 
   useEffect(() => {
     scheduleRedraw();
-  }, [pixelMap, width, height, baseCellSize, selectedColor, translate, scale, scheduleRedraw]);
+  }, [
+    pixelMap,
+    width,
+    height,
+    baseCellSize,
+    selectedColor,
+    translate,
+    scale,
+    highlightedPixels,
+    moveOverlay,
+    scheduleRedraw,
+  ]);
+
+  useEffect(() => {
+    if (
+      (!highlightedPixels || highlightedPixels.size === 0) &&
+      (!moveOverlay || moveOverlay.map.size === 0)
+    ) {
+      return;
+    }
+    let animId = 0;
+    const loop = () => {
+      scheduleRedraw();
+      animId = requestAnimationFrame(loop);
+    };
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [highlightedPixels, moveOverlay, scheduleRedraw]);
 
   useEffect(() => {
     return () => {
       cancelAnimationFrame(rafRef.current);
       needsDrawRef.current = false;
+      if (previewRafRef.current) {
+        cancelAnimationFrame(previewRafRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!movePreviewActive || !movePreviewPixels || movePreviewPixels.length === 0) {
+      setPreviewPos(null);
+      setPreviewCell(null);
+      setIsPreviewDragging(false);
+      dragOffsetRef.current = null;
+      dragPointerIdRef.current = null;
+    }
+  }, [movePreviewActive, movePreviewPixels]);
 
   useEffect(() => {
     if (!containerSize.width || !containerSize.height) {
@@ -447,10 +845,6 @@ export function Canvas({
     translateRef.current = clamped;
     setTranslate(clamped);
   }, [baseSize.height, baseSize.width, clampTranslate, containerSize]);
-
-  useEffect(() => {
-    resetView();
-  }, [resetView]);
 
   useEffect(() => {
     return () => {
@@ -467,15 +861,54 @@ export function Canvas({
     }
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const rect = container.getBoundingClientRect();
-      const focusX = event.clientX - rect.left;
-      const focusY = event.clientY - rect.top;
-      const zoomFactor = Math.exp(-event.deltaY * 0.0015);
-      zoomTo(scaleRef.current * zoomFactor, focusX, focusY);
+      const isTrackpadPinch = event.ctrlKey === true;
+
+      if (isTrackpadPinch) {
+        const rect = container.getBoundingClientRect();
+        const focusX = event.clientX - rect.left;
+        const focusY = event.clientY - rect.top;
+        const zoomFactor = Math.exp(-event.deltaY * 0.004);
+        zoomTo(scaleRef.current * zoomFactor, focusX, focusY);
+      } else {
+        setTranslateSafe({
+          x: translateRef.current.x - event.deltaX,
+          y: translateRef.current.y - event.deltaY,
+        });
+      }
     };
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
-  }, [zoomTo]);
+  }, [zoomTo, setTranslateSafe]);
+
+  const updatePreviewCell = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const cell = hitTest(
+        clientX,
+        clientY,
+        rect,
+        translateRef.current,
+        scaleRef.current,
+        baseCellSize,
+        CELL_GAP,
+        width,
+        height,
+      );
+      setPreviewCell((prev) => {
+        if (!cell) {
+          return prev ? null : prev;
+        }
+        if (prev && prev.x === cell.x && prev.y === cell.y) {
+          return prev;
+        }
+        return cell;
+      });
+    },
+    [baseCellSize, height, width],
+  );
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== undefined && event.button !== 0) {
@@ -487,23 +920,13 @@ export function Canvas({
 
     clickOriginRef.current = { x: event.clientX, y: event.clientY };
 
-    const allowSwipe =
-      event.pointerType === "touch" &&
-      scaleRef.current <= 1.001 &&
-      pointers.size === 1;
-    allowSwipeRef.current = allowSwipe;
-
-    if (!allowSwipe) {
-      event.stopPropagation();
-    } else if (onEdgeSwipe) {
-      swipeRef.current = { startY: pointer.y };
-      edgeSwipeTriggeredRef.current = false;
-      setIsInteracting(true);
+    if (movePreviewActive && !isCoarsePointer) {
+      updatePreviewCell(event.clientX, event.clientY);
     }
 
+    event.stopPropagation();
+
     if (pointers.size === 2) {
-      allowSwipeRef.current = false;
-      event.stopPropagation();
       const points = Array.from(pointers.values());
       const dx = points[0].x - points[1].x;
       const dy = points[0].y - points[1].y;
@@ -517,21 +940,13 @@ export function Canvas({
       return;
     }
 
-    if (event.pointerType !== "touch" || scaleRef.current > 1.001) {
-      panRef.current = {
-        startX: pointer.x,
-        startY: pointer.y,
-        startTranslate: { ...translateRef.current },
-      };
-      edgeSwipeTriggeredRef.current = false;
-      setIsInteracting(true);
-    }
-  };
-
-  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const pointers = pointersRef.current;
-
-    if (event.pointerType !== "touch") {
+    if (isFreeModePainting) {
+      isPaintStrokeRef.current = true;
+      didPaintStrokeRef.current = true;
+      lastPaintedCellRef.current = null;
+      onStrokeStart?.();
+      hoveredCellRef.current = null;
+      scheduleRedraw();
       const rect = containerRef.current?.getBoundingClientRect();
       if (rect) {
         const cell = hitTest(
@@ -545,9 +960,70 @@ export function Canvas({
           width,
           height,
         );
+        if (cell) {
+          (onFreePaint ?? onPixelClick)(cell.x, cell.y);
+          lastPaintedCellRef.current = cell;
+        }
+      }
+      setIsInteracting(true);
+      return;
+    }
+
+    panRef.current = {
+      startX: pointer.x,
+      startY: pointer.y,
+      startTranslate: { ...translateRef.current },
+    };
+    edgeSwipeTriggeredRef.current = false;
+    setIsInteracting(true);
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const pointers = pointersRef.current;
+
+    if (event.pointerType !== "touch" || (movePreviewActive && !isCoarsePointer)) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const cell = hitTest(
+          event.clientX,
+          event.clientY,
+          rect,
+          translateRef.current,
+          scaleRef.current,
+          baseCellSize,
+          CELL_GAP,
+          width,
+          height,
+        );
+        if (movePreviewActive) {
+          updatePreviewCell(event.clientX, event.clientY);
+        }
+        hoverPointerRef.current = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
+        if (
+          movePreviewActive &&
+          movePreviewPixels &&
+          movePreviewPixels.length > 0 &&
+          !isCoarsePointer
+        ) {
+          const nextPos = hoverPointerRef.current;
+          if (!previewRafRef.current) {
+            previewRafRef.current = requestAnimationFrame(() => {
+              previewRafRef.current = null;
+              setPreviewPos(nextPos);
+            });
+          }
+        }
         const prev = hoveredCellRef.current;
-        if (cell?.x !== prev?.x || cell?.y !== prev?.y) {
-          hoveredCellRef.current = cell;
+        const hideHoverDuringStroke =
+          isFreeModePainting && isPaintStrokeRef.current;
+        const nextHover = hideHoverDuringStroke ? null : cell;
+        if (nextHover?.x !== prev?.x || nextHover?.y !== prev?.y) {
+          hoveredCellRef.current = nextHover;
+          scheduleRedraw();
+        } else {
           scheduleRedraw();
         }
       }
@@ -583,22 +1059,35 @@ export function Canvas({
       return;
     }
 
-    if (
-      allowSwipeRef.current &&
-      swipeRef.current &&
-      onEdgeSwipe &&
-      event.pointerType === "touch"
-    ) {
-      const dy = event.clientY - swipeRef.current.startY;
-      const threshold = Math.max(60, containerSize.height * 0.12);
-      if (!edgeSwipeTriggeredRef.current && Math.abs(dy) >= threshold) {
-        edgeSwipeTriggeredRef.current = true;
-        swipeRef.current = null;
-        allowSwipeRef.current = false;
-        setIsInteracting(false);
-        triggerEdgeSwipe(dy < 0 ? "next" : "prev");
-        return;
+    if (isFreeModePainting && isPaintStrokeRef.current) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const cell = hitTest(
+          event.clientX,
+          event.clientY,
+          rect,
+          translateRef.current,
+          scaleRef.current,
+          baseCellSize,
+          CELL_GAP,
+          width,
+          height,
+          FREE_PAINT_CELL_INSET,
+        );
+        const last = lastPaintedCellRef.current;
+        if (cell && (last?.x !== cell.x || last?.y !== cell.y)) {
+          if (last) {
+            const gap = lineCells(last.x, last.y, cell.x, cell.y);
+            for (const g of gap) {
+              (onFreePaint ?? onPixelClick)(g.x, g.y);
+            }
+          } else {
+            (onFreePaint ?? onPixelClick)(cell.x, cell.y);
+          }
+          lastPaintedCellRef.current = cell;
+        }
       }
+      return;
     }
 
     if (panRef.current) {
@@ -645,25 +1134,40 @@ export function Canvas({
     if (pointers.size < 2) {
       pinchRef.current = null;
     }
+    const hadPaintStroke = didPaintStrokeRef.current;
     if (pointers.size === 0) {
       panRef.current = null;
       setIsInteracting(false);
       edgeSwipeTriggeredRef.current = false;
-      swipeRef.current = null;
-      allowSwipeRef.current = false;
+      isPaintStrokeRef.current = false;
+      lastPaintedCellRef.current = null;
+      didPaintStrokeRef.current = false;
+      if (hadPaintStroke) {
+        onStrokeEnd?.();
+      }
+    }
+
+    if (movePreviewActive && !isCoarsePointer) {
+      updatePreviewCell(event.clientX, event.clientY);
     }
 
     const origin = clickOriginRef.current;
     if (
+      !hadPaintStroke &&
       origin &&
       !edgeSwipeTriggeredRef.current &&
       !pinchRef.current
     ) {
+      if (movePreviewActive && isCoarsePointer) {
+        clickOriginRef.current = null;
+        return;
+      }
       const dist = Math.hypot(
         event.clientX - origin.x,
         event.clientY - origin.y,
       );
-      if (dist < 4) {
+      const clickThreshold = event.pointerType === "touch" ? 12 : 4;
+      if (dist < clickThreshold) {
         const rect = containerRef.current?.getBoundingClientRect();
         if (rect) {
           const cell = hitTest(
@@ -693,7 +1197,11 @@ export function Canvas({
       const prev = lastTapRef.current;
       const dist = Math.hypot(prev.x - tapX, prev.y - tapY);
       if (now - prev.time < 300 && dist < 24) {
-        zoomTo(scaleRef.current * ZOOM_STEP, tapX, tapY);
+        if (scaleRef.current > MIN_ZOOM + 0.01) {
+          resetView();
+        } else {
+          zoomTo(scaleRef.current * ZOOM_STEP, tapX, tapY);
+        }
         lastTapRef.current = { time: 0, x: 0, y: 0 };
       } else {
         lastTapRef.current = { time: now, x: tapX, y: tapY };
@@ -701,18 +1209,109 @@ export function Canvas({
     }
   };
 
-  const handleDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    const focusX = event.clientX - (rect?.left ?? 0);
-    const focusY = event.clientY - (rect?.top ?? 0);
-    zoomTo(scaleRef.current * ZOOM_STEP, focusX, focusY);
-  };
-
   const handleMouseLeave = () => {
     if (hoveredCellRef.current) {
       hoveredCellRef.current = null;
+      hoverPointerRef.current = null;
+      if (!isCoarsePointer) {
+        setPreviewPos(null);
+      }
+      setPreviewCell(null);
       scheduleRedraw();
     }
+  };
+
+  const handlePreviewPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer || !movePreviewActive) {
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    dragPointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsPreviewDragging(true);
+    const dock = getDockPosition();
+    if (!previewPos) {
+      setPreviewPos({ x: dock.left, y: dock.top });
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    dragOffsetRef.current = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    updatePreviewCell(event.clientX, event.clientY);
+  };
+
+  const handlePreviewPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer) {
+      return;
+    }
+    if (dragPointerIdRef.current !== event.pointerId || !isPreviewDragging) {
+      event.stopPropagation();
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect || !dragOffsetRef.current) {
+      return;
+    }
+    const maxX = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    const maxY = Math.max(
+      PREVIEW_MARGIN,
+      containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
+    );
+    const nextLeft =
+      event.clientX - containerRect.left - dragOffsetRef.current.x;
+    const nextTop = event.clientY - containerRect.top - dragOffsetRef.current.y;
+    setPreviewPos({
+      x: clamp(nextLeft, PREVIEW_MARGIN, maxX),
+      y: clamp(nextTop, PREVIEW_MARGIN, maxY),
+    });
+    updatePreviewCell(event.clientX, event.clientY);
+  };
+
+  const handlePreviewPointerUp = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isCoarsePointer) {
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+    if (dragPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+    dragPointerIdRef.current = null;
+    dragOffsetRef.current = null;
+    setIsPreviewDragging(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const cell = hitTest(
+        event.clientX,
+        event.clientY,
+        rect,
+        translateRef.current,
+        scaleRef.current,
+        baseCellSize,
+        CELL_GAP,
+        width,
+        height,
+      );
+      if (cell) {
+        setPreviewCell(cell);
+        onPixelClick(cell.x, cell.y);
+      }
+    }
+    setPreviewPos(null);
   };
 
   return (
@@ -722,12 +1321,27 @@ export function Canvas({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      onDoubleClick={handleDoubleClick}
       onMouseLeave={handleMouseLeave}
-      className={`relative h-full w-full overflow-hidden select-none touch-none ${isInteracting ? "cursor-grabbing" : "cursor-grab"} ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
+      className={`relative h-full w-full overflow-hidden select-none touch-none ${
+        isFreeModePainting
+          ? "cursor-crosshair"
+          : movePreviewActive
+            ? isInteracting
+              ? "cursor-grabbing"
+              : "cursor-crosshair"
+            : isInteracting
+              ? "cursor-grabbing"
+              : "cursor-pointer"
+      } ${edgeSwipeFeedback === "next" ? "edge-swipe-next" : ""} ${edgeSwipeFeedback === "prev" ? "edge-swipe-prev" : ""}`}
     >
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full border bg-background/90 px-2 py-1 text-muted-foreground shadow-sm">
-        <span className="rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
+      <div
+        className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-full border border-black/10 bg-background/60 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-white/10"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onPointerMove={(event) => event.stopPropagation()}
+        onPointerCancel={(event) => event.stopPropagation()}
+      >
+        <span className="rounded-full  text-[11px] font-medium text-foreground">
           {Number.isFinite(scale)
             ? `${Math.abs(scale - 1) < 0.01 ? "1" : scale.toFixed(scale < 2 ? 2 : 1)}x`
             : "1x"}
@@ -736,7 +1350,7 @@ export function Canvas({
           type="button"
           aria-label="Oddálit"
           onClick={() => zoomBy(-1)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
@@ -744,7 +1358,7 @@ export function Canvas({
           type="button"
           aria-label="Resetovat zoom"
           onClick={resetView}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -752,7 +1366,7 @@ export function Canvas({
           type="button"
           aria-label="Přiblížit"
           onClick={() => zoomBy(1)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition hover:text-foreground"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
@@ -767,6 +1381,26 @@ export function Canvas({
           pointerEvents: "none",
         }}
       />
+      {isCoarsePointer &&
+        movePreviewActive &&
+        movePreviewPixels &&
+        movePreviewPixels.length > 0 &&
+        previewStyle && (
+          <div
+            className={`absolute ${
+              isCoarsePointer ? "pointer-events-auto" : "pointer-events-none"
+            } ${isPreviewDragging ? "opacity-0" : "opacity-100"}`}
+            style={previewStyle}
+            onPointerDown={handlePreviewPointerDown}
+            onPointerMove={handlePreviewPointerMove}
+            onPointerUp={handlePreviewPointerUp}
+            onPointerCancel={handlePreviewPointerUp}
+          >
+            <div className="rounded-2xl bg-background/90 p-2 shadow-lg backdrop-blur">
+              <PixelPreview pixels={previewPixels} maxSize={PREVIEW_MAX} />
+            </div>
+          </div>
+        )}
     </div>
   );
 }

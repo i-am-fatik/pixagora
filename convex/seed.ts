@@ -1,5 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { computeCredits, findOrCreateUser } from "./credits";
+import { DEFAULT_COLORS } from "./canvases";
 
 const TABLES_TO_CLEAR = [
   "pixels",
@@ -24,77 +26,57 @@ export const clearAll = internalMutation({
   },
 });
 
-function generateToken(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < 32; i++) {
-    token += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return token;
-}
-
-const DEMO_USERS = [
-  { email: "alice@pixagora.cz" },
-  { email: "bob@pixagora.cz" },
-];
-
-const DEFAULT_COLORS = [
-  "#000000",
-  "#7F7F7F",
-  "#FFFFFF",
-  "#FFD400",
-  "#F7931A",
-  "#00AEEF",
-  "#EC008C",
-  "#0057B8",
-  "#00A651",
-];
-
-export const seedDemo = internalMutation({
+export const createCanvas = internalMutation({
   args: {
+    name: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
-    canvasName: v.optional(v.string()),
+    pixelPrice: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const width = args.width ?? 110;
-    const height = args.height ?? 169;
-    const canvasName = args.canvasName ?? "Pixagora #1";
+    const existing = await ctx.db.query("canvases").collect();
+    const order = existing.length;
 
-    const userResults = [];
-    for (const { email } of DEMO_USERS) {
-      const existing = await ctx.db
-        .query("users")
-        .withIndex("by_email", (q) => q.eq("email", email))
-        .unique();
+    const canvasId = await ctx.db.insert("canvases", {
+      name: args.name || `PixAgora #${order + 1}`,
+      width: args.width || 110,
+      height: args.height || 169,
+      colors: DEFAULT_COLORS,
+      pixelPrice: args.pixelPrice || 1,
+      order,
+      createdAt: Date.now(),
+    });
 
-      if (existing) {
-        await ctx.db.patch(existing._id, { credits: 1000 });
-        userResults.push({ email, token: existing.token, credits: 1000 });
-      } else {
-        const token = generateToken();
-        await ctx.db.insert("users", { email, token, credits: 1000 });
-        userResults.push({ email, token, credits: 1000 });
-      }
+    return { canvasId, order };
+  },
+});
+
+export const giveawayPayment = internalMutation({
+  args: {
+    email: v.string(),
+    credits: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const email = args.email || "test@pixagora.cz";
+    const credits = args.credits || 100;
+
+    if (credits <= 0) {
+      throw new Error("Credits must be positive");
     }
 
-    const existingCanvases = await ctx.db.query("canvases").collect();
-    let canvasId;
-    if (existingCanvases.length === 0) {
-      canvasId = await ctx.db.insert("canvases", {
-        name: canvasName,
-        width,
-        height,
-        colors: DEFAULT_COLORS,
-        pixelPrice: 1,
-        unlockThreshold: 0.8,
-        order: 0,
-        createdAt: Date.now(),
-      });
-    } else {
-      canvasId = existingCanvases[0]._id;
-    }
+    const user = await findOrCreateUser(ctx, email);
 
-    return { users: userResults, canvasId, width, height };
+    await ctx.db.insert("payments", {
+      email: email,
+      userId: user._id,
+      creditsDelta: credits,
+      createdAt: Date.now(),
+      source: "giveaway",
+      trxId: args.note,
+    });
+
+    const balance = await computeCredits(ctx, user._id);
+    return { userId: user._id, email: user.email, token: user.token, balance };
   },
 });

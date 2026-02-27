@@ -1,41 +1,27 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { findOrCreateUser } from "./credits";
+import { calculateCredits } from "./pricing";
 
-const REWARD_CREDITS: Record<string, number> = {
-  Podporovatel: 50,
-  // TODO: Doplnit kompletní mapping reward -> credits.
-};
-
-const FALLBACK_CZK_PER_CREDIT = 30;
-
-function generateToken(): string {
-  if (!globalThis.crypto?.getRandomValues) {
-    throw new Error("WebCrypto is not available");
+function rewardSourceLabel(source: string): string {
+  if (source === "btcpay") {
+    return "BTCPay";
   }
-  const bytes = new Uint8Array(16);
-  globalThis.crypto.getRandomValues(bytes);
-  let hex = "";
-  for (const byte of bytes) {
-    hex += byte.toString(16).padStart(2, "0");
+  return "Startovač";
+}
+
+function creditsForReward(
+  source: string,
+  reward: string,
+  amountCzk: number,
+): number | null {
+  if (reward.toLowerCase().includes("pixagor")) {
+    return calculateCredits(amountCzk);
   }
-  return hex;
+  return null;
 }
 
-function normalizeEmail(email: string): string {
-  return email
-    .normalize("NFKC")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "");
-}
-
-function creditsForReward(reward: string, amountCzk: number): number {
-  const mapped = REWARD_CREDITS[reward];
-  if (typeof mapped === "number") return mapped;
-  return Math.floor(amountCzk / FALLBACK_CZK_PER_CREDIT);
-}
-
-export const processStartovacPayment = internalMutation({
+export const processPayment = internalMutation({
   args: {
     source: v.string(),
     trxId: v.string(),
@@ -59,41 +45,57 @@ export const processStartovacPayment = internalMutation({
       };
     }
 
-    const email = normalizeEmail(args.email);
-    let user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
-
-    if (!user) {
-      const token = generateToken();
-      const userId = await ctx.db.insert("users", {
-        email,
-        token,
-        credits: 0,
+    const creditsDelta = creditsForReward(
+      args.source,
+      args.reward,
+      args.amountCzk,
+    );
+    if (creditsDelta === null) {
+      console.warn("skipping payment:", {
+        source: args.source,
+        trxId: args.trxId,
+        email: args.email,
+        amountCzk: args.amountCzk,
+        reward: args.reward,
+        purchasedAt: args.purchasedAt,
       });
-      user = await ctx.db.get(userId);
-      if (!user) throw new Error("User insert failed");
+      return { status: "skipped" as const };
     }
 
-    const creditsDelta = creditsForReward(args.reward, args.amountCzk);
-
-    await ctx.db.patch(user._id, {
-      credits: user.credits + creditsDelta,
-    });
+    const user = await findOrCreateUser(ctx, args.email);
 
     await ctx.db.insert("payments", {
       userId: user._id,
-      amountSats: 0,
       creditsDelta,
       createdAt: Date.now(),
       source: args.source,
       trxId: args.trxId,
-      email,
+      email: user.email,
       amountCzk: args.amountCzk,
       reward: args.reward,
       purchasedAt: args.purchasedAt,
     });
+
+    if (args.source === "startovac" || args.source === "btcpay") {
+      const displayName = user.nickname?.trim() || "Anonym";
+      const displayEmail = user.showEmail ? user.email : undefined;
+      const amountLabel = Math.round(args.amountCzk);
+      const text = `${displayName} podpořil(a) projekt ${amountLabel} Kč přes ${rewardSourceLabel(args.source)} a získal(a) ${creditsDelta} kreditů.`;
+      await ctx.db.insert("chatMessages", {
+        userId: user._id,
+        kind: "reward",
+        text,
+        createdAt: Date.now(),
+        authorName: "PixAgora bot",
+        authorColor: "#ffffff",
+        rewardSource: args.source,
+        rewardAmountCzk: args.amountCzk,
+        rewardCreditsDelta: creditsDelta,
+        rewardName: args.reward,
+        rewardDisplayName: displayName,
+        rewardDisplayEmail: displayEmail,
+      });
+    }
 
     return { status: "ok" as const, userId: user._id, creditsDelta };
   },

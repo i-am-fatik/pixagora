@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import {
   isDryRun,
+  sendMagicLinkEmail,
   sendStartovacTokenEmail,
   signPixagoraPayload,
   timingSafeEqualHex,
@@ -71,17 +72,78 @@ http.route({
   path: "/webhooks/btcpay",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    // TODO: Verify BTCpay webhook signature
-    // TODO: Parse payload and find user
-    // TODO: Call addCredits internal mutation
-
     const body = await request.json();
     console.log("BTCpay webhook received:", JSON.stringify(body));
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
+    if (body.type !== "InvoiceSettled") {
+      return jsonResponse({ ok: true, ignored: true });
+    }
+
+    const btcpayUrl = process.env.BTCPAY_URL;
+    const btcpayApiKey = process.env.BTCPAY_API_KEY;
+    const storeId = body.storeId;
+    const invoiceId = body.invoiceId;
+
+    if (!btcpayUrl || !btcpayApiKey) {
+      console.error("Missing BTCPAY_URL or BTCPAY_API_KEY");
+      return jsonResponse({ ok: false, error: "Server configuration error" }, 500);
+    }
+
+    // Fetch invoice details from BTCpay Greenfield API
+    const response = await fetch(
+      `${btcpayUrl}/api/v1/stores/${storeId}/invoices/${invoiceId}`,
+      {
+        headers: {
+          Authorization: `token ${btcpayApiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      console.error("Failed to fetch invoice from BTCpay", await response.text());
+      return jsonResponse({ ok: false, error: "Failed to fetch invoice" }, 500);
+    }
+
+    const invoice = await response.json();
+    console.log('invoice', invoice)
+    const email = invoice.metadata?.form?.email || invoice.checkout?.buyerEmail;
+    const reward = invoice.metadata?.form?.perk || "BTCpay Payment";
+    const amountCzk = parseFloat(invoice.amount); // Assuming invoice is in CZK
+
+    if (!email) {
+      console.error("No email found in BTCpay invoice", invoiceId);
+      return jsonResponse({ ok: false, error: "No email found" }, 400);
+    }
+
+    const result = await ctx.runMutation(internal.webhooks.processPayment, {
+      source: "btcpay",
+      trxId: invoiceId,
+      email,
+      amountCzk,
+      reward,
+      purchasedAt: body.timestamp * 1000,
     });
+
+    if (result.status === "ok") {
+      const recipient = await ctx.runQuery(
+        internal.users.getEmailAndTokenById,
+        { userId: result.userId },
+      );
+      if (recipient) {
+        await sendStartovacTokenEmail({
+          to: recipient.email,
+          token: recipient.token,
+          creditsDelta: result.creditsDelta,
+          reward,
+          amountCzk,
+          trxId: invoiceId,
+          purchasedAt: new Date(body.timestamp * 1000).toISOString(),
+        });
+      }
+    }
+
+    return jsonResponse({ ok: true, ...result });
   }),
 });
 
@@ -144,7 +206,7 @@ http.route({
     }
 
     const result = await ctx.runMutation(
-      internal.webhooks.processStartovacPayment,
+      internal.webhooks.processPayment,
       {
         source: validation.value.source,
         trxId: validation.value.trxId,
@@ -202,6 +264,60 @@ http.route({
       },
       200,
     );
+  }),
+});
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function canSendEmail(): boolean {
+  return !!(process.env.RESEND_API_KEY && process.env.PIXAGORA_EMAIL_FROM);
+}
+
+function buildDevLoginUrl(token: string): string {
+  const appUrl = process.env.PIXAGORA_APP_URL ?? "http://localhost:3000";
+  const loginPath = process.env.PIXAGORA_LOGIN_PATH ?? "/canvas";
+  const url = new URL(loginPath, appUrl);
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+http.route({
+  path: "/api/auth/magic-link",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await request.json();
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+
+    if (!EMAIL_REGEX.test(email)) {
+      return jsonResponse({ ok: false, error: "Neplatná emailová adresa" }, 400);
+    }
+
+    const user = await ctx.runMutation(
+      internal.credits.findUserForLogin,
+      { email },
+    );
+    if (!user.found) {
+      return jsonResponse({ ok: false, error: "USER_NOT_FOUND" }, 404);
+    }
+
+    // DEV fallback: when Resend config is missing, return login link directly
+    if (!canSendEmail()) {
+      return jsonResponse({ ok: true, devLoginUrl: buildDevLoginUrl(user.token) });
+    }
+
+    if (user.rateLimited) {
+      return jsonResponse({ ok: true });
+    }
+
+    const result = await sendMagicLinkEmail({
+      to: user.email,
+      token: user.token,
+    });
+    if (!result.ok) {
+      return jsonResponse({ ok: false, error: result.error ?? "Failed to send email" }, 500);
+    }
+
+    return jsonResponse({ ok: true });
   }),
 });
 

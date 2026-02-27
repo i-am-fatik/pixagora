@@ -7,7 +7,7 @@ import {
   Play,
 } from "lucide-react";
 
-export type Speed = 1 | 2 | 4;
+export type Speed = 1 | 2 | 4 | 8 | 16;
 
 type ReplayControlsProps = {
   stepIndex: number;
@@ -21,7 +21,7 @@ type ReplayControlsProps = {
   onSpeedChange: (speed: Speed) => void;
 };
 
-const SPEEDS: Speed[] = [1, 2, 4];
+const SPEEDS: Speed[] = [1, 2, 4, 8, 16];
 
 export function ReplayControls({
   stepIndex,

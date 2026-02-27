@@ -1,6 +1,8 @@
 import { query, mutation, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+import { nextPixelPrice } from "./pricing";
+import { computeCredits, computeTotalPaidCzk } from "./credits";
 
 const MAX_BATCH_SIZE = 500;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -15,6 +17,7 @@ export const getByCanvas = query({
   },
 });
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function maybeCreateNextCanvas(
   ctx: MutationCtx,
   canvas: Doc<"canvases">,
@@ -32,7 +35,7 @@ async function maybeCreateNextCanvas(
   ).length;
 
   const fillRatio = pixelCount / totalCells;
-  if (fillRatio < canvas.unlockThreshold) {
+  if (fillRatio < (canvas.unlockThreshold ?? 0.8)) {
     return;
   }
 
@@ -47,7 +50,7 @@ async function maybeCreateNextCanvas(
 
   const nextNumber = nextOrder + 1;
   await ctx.db.insert("canvases", {
-    name: `Pixagora #${nextNumber}`,
+    name: `PixAgora #${nextNumber}`,
     width: canvas.width,
     height: canvas.height,
     colors: canvas.colors,
@@ -75,8 +78,9 @@ export const commit = mutation({
         color: v.string(),
       })
     ),
+    expectedCost: v.optional(v.number()),
   },
-  handler: async (ctx, { token, canvasId, pixels }) => {
+  handler: async (ctx, { token, canvasId, pixels, expectedCost }) => {
     if (pixels.length === 0) {
       throw new Error("No pixels to commit");
     }
@@ -96,11 +100,15 @@ export const commit = mutation({
     if (!canvas) {
       throw new Error("Canvas not found");
     }
+    if (canvas.locked) {
+      return { error: "CANVAS_LOCKED" as const };
+    }
 
     const changes: {
       x: number;
       y: number;
       color: string;
+      price: number;
       previousColor?: string;
     }[] = [];
 
@@ -111,14 +119,25 @@ export const commit = mutation({
       color: string;
       price: number;
       existingId?: Id<"pixels">;
+      existingUserId?: Id<"users">;
       previousColor?: string;
     }[] = [];
+
+    const allowedColors = new Set(canvas.colors.map((c) => c.toLowerCase()));
 
     const dedupedPixels = [
       ...new Map(pixels.map((px) => [`${px.x},${px.y}`, px])).values(),
     ];
 
-    for (const px of dedupedPixels) {
+    const filteredPixels = canvas.enforceColors
+      ? dedupedPixels.filter((px) => allowedColors.has(px.color.toLowerCase()))
+      : dedupedPixels;
+
+    if (filteredPixels.length === 0) {
+      return { committed: 0 };
+    }
+
+    for (const px of filteredPixels) {
       validateCoordinate(px.x, "x", canvas.width);
       validateCoordinate(px.y, "y", canvas.height);
 
@@ -137,27 +156,53 @@ export const commit = mutation({
         continue;
       }
 
-      const price = existing ? existing.price + 1 : canvas.pixelPrice;
+      const price = nextPixelPrice(canvas.pixelPrice, existing?.price);
       totalCost += price;
       pixelDetails.push({
         ...px,
         price,
         existingId: existing?._id,
+        existingUserId: existing?.userId,
         previousColor: existing?.color,
       });
     }
 
     if (pixelDetails.length === 0) {
-      return { totalCost: 0, remaining: user.credits };
+      const balance = await computeCredits(ctx, user._id);
+      return { totalCost: 0, remaining: balance };
     }
 
-    if (user.credits < totalCost) {
-      throw new Error("Not enough credits");
+    const totalPaidCzk = await computeTotalPaidCzk(ctx, user._id);
+
+    if (totalPaidCzk < 69) {
+      return {
+        error: "MIN_PAYMENT_REQUIRED" as const,
+        requiredCzk: 69,
+        totalPaidCzk,
+      };
     }
 
-    await ctx.db.patch(user._id, {
-      credits: user.credits - totalCost,
-    });
+    const needsOverwriteAccess = pixelDetails.some(
+      (px) => px.existingUserId && px.existingUserId !== user._id,
+    );
+    if (needsOverwriteAccess) {
+      if (totalPaidCzk < 666) {
+        return {
+          error: "OVERWRITE_LOCKED" as const,
+          requiredCzk: 666,
+          totalPaidCzk,
+        };
+      }
+    }
+
+    if (expectedCost !== undefined && totalCost !== expectedCost) {
+      return { error: "PRICE_CHANGED" as const, expectedCost, totalCost };
+    }
+
+    const balance = await computeCredits(ctx, user._id);
+    if (balance < totalCost) {
+      return { error: "NOT_ENOUGH_CREDITS" as const, totalCost, balance };
+    }
 
     const now = Date.now();
 
@@ -185,19 +230,39 @@ export const commit = mutation({
         x: px.x,
         y: px.y,
         color: px.color,
+        price: px.price,
         previousColor: px.previousColor,
       });
     }
 
-    await ctx.db.insert("transactions", {
+    const transactionId = await ctx.db.insert("transactions", {
       canvasId,
       userId: user._id,
       timestamp: now,
+      cost: totalCost,
       changes,
     });
 
-    await maybeCreateNextCanvas(ctx, canvas);
+    const commitActorName = user.nickname?.trim() || "Anonymous";
+    const commitActorEmail = user.showEmail ? user.email : undefined;
+    const commitPixelCount = changes.length;
+    await ctx.db.insert("chatMessages", {
+      userId: user._id,
+      kind: "commit",
+      text: `${commitActorName} zakreslil(a) ${commitPixelCount} px.`,
+      createdAt: now,
+      authorName: "PixAgora bot",
+      authorColor: "#ffffff",
+      commitId: transactionId,
+      commitCanvasId: canvasId,
+      commitPixelCount,
+      commitActorName,
+      commitActorEmail,
+    });
 
-    return { totalCost, remaining: user.credits - totalCost };
+    // auto-creating new canvases OFF
+    // await maybeCreateNextCanvas(ctx, canvas);
+
+    return { totalCost, remaining: balance - totalCost };
   },
 });

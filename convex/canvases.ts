@@ -41,8 +41,8 @@ export const create = internalMutation({
     if (args.pixelPrice <= 0) {
       throw new Error("pixelPrice must be positive");
     }
-    const threshold = args.unlockThreshold ?? 0.8;
-    if (threshold <= 0 || threshold > 1) {
+    const threshold = args.unlockThreshold;
+    if (threshold !== undefined && (threshold <= 0 || threshold > 1)) {
       throw new Error("unlockThreshold must be between 0 (exclusive) and 1 (inclusive)");
     }
 
@@ -67,5 +67,74 @@ export const create = internalMutation({
       createdBy: args.createdBy,
     });
     return id;
+  },
+});
+
+export const DEFAULT_COLORS = [
+  "#000000",
+  "#7F7F7F",
+  "#FFFFFF",
+  "#FFD400",
+  "#F7931A",
+  "#00AEEF",
+  "#EC008C",
+  "#0057B8",
+  "#00A651",
+];
+
+const GRAYSCALE_COLORS = [
+  "#000000",
+  "#1C1C1C",
+  "#383838",
+  "#555555",
+  "#717171",
+  "#8E8E8E",
+  "#AAAAAA",
+  "#C6C6C6",
+  "#E3E3E3",
+  "#FFFFFF",
+];
+
+export const setColors = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    colors: v.optional(v.array(v.string())),
+    grayscale: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) {
+      throw new Error("Canvas not found");
+    }
+
+    const colors = args.grayscale ? GRAYSCALE_COLORS : args.colors;
+    if (!colors) {
+      throw new Error("Provide colors array or grayscale: true");
+    }
+
+    await ctx.db.patch(args.canvasId, { colors });
+    return { canvasId: args.canvasId, colors };
+  },
+});
+
+export const setEnforceColors = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    enforceColors: v.boolean(),
+    grayscale: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) {
+      throw new Error("Canvas not found");
+    }
+
+    const patch: { enforceColors: boolean; colors: string[] } = {
+      enforceColors: args.enforceColors,
+      colors: args.grayscale ? GRAYSCALE_COLORS : DEFAULT_COLORS,
+    };
+
+    await ctx.db.patch(args.canvasId, patch);
+    return { canvasId: args.canvasId, enforceColors: args.enforceColors, colors: patch.colors };
   },
 });
