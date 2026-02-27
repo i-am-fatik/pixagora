@@ -9,6 +9,7 @@ export const getAll = query({
     return await ctx.db
       .query("canvases")
       .withIndex("by_order")
+      .order("desc")
       .collect();
   },
 });

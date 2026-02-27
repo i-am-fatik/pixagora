@@ -108,6 +108,12 @@ export function Tutorial({ step, onPrev, onNext, onSkip }: TutorialProps) {
 
   return (
     <>
+      {/* Full-screen clickable backdrop — click anywhere to advance/skip */}
+      <div
+        className="fixed inset-0 z-[39]"
+        onClick={step < 3 ? onNext : onSkip}
+      />
+
       {/* Spotlight overlay — skip for canvas step (too large) */}
       {!isCanvasStep && (
         <div

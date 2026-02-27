@@ -100,7 +100,10 @@ export const commit = mutation({
     if (!canvas) {
       throw new Error("Canvas not found");
     }
-    if (canvas.locked) {
+
+    const isAdmin = user.isAdmin === true;
+
+    if (!isAdmin && canvas.locked) {
       return { error: "CANVAS_LOCKED" as const };
     }
 
@@ -156,7 +159,7 @@ export const commit = mutation({
         continue;
       }
 
-      const price = nextPixelPrice(canvas.pixelPrice, existing?.price);
+      const price = isAdmin ? 0 : nextPixelPrice(canvas.pixelPrice, existing?.price);
       totalCost += price;
       pixelDetails.push({
         ...px,
@@ -168,40 +171,45 @@ export const commit = mutation({
     }
 
     if (pixelDetails.length === 0) {
+      if (isAdmin) {
+        return { totalCost: 0, remaining: 0 };
+      }
       const balance = await computeCredits(ctx, user._id);
       return { totalCost: 0, remaining: balance };
     }
 
-    const totalPaidCzk = await computeTotalPaidCzk(ctx, user._id);
+    if (!isAdmin) {
+      const totalPaidCzk = await computeTotalPaidCzk(ctx, user._id);
 
-    if (totalPaidCzk < 69) {
-      return {
-        error: "MIN_PAYMENT_REQUIRED" as const,
-        requiredCzk: 69,
-        totalPaidCzk,
-      };
-    }
-
-    const needsOverwriteAccess = pixelDetails.some(
-      (px) => px.existingUserId && px.existingUserId !== user._id,
-    );
-    if (needsOverwriteAccess) {
-      if (totalPaidCzk < 666) {
+      if (totalPaidCzk < 69) {
         return {
-          error: "OVERWRITE_LOCKED" as const,
-          requiredCzk: 666,
+          error: "MIN_PAYMENT_REQUIRED" as const,
+          requiredCzk: 69,
           totalPaidCzk,
         };
       }
-    }
 
-    if (expectedCost !== undefined && totalCost !== expectedCost) {
-      return { error: "PRICE_CHANGED" as const, expectedCost, totalCost };
-    }
+      const needsOverwriteAccess = pixelDetails.some(
+        (px) => px.existingUserId && px.existingUserId !== user._id,
+      );
+      if (needsOverwriteAccess) {
+        if (totalPaidCzk < 666) {
+          return {
+            error: "OVERWRITE_LOCKED" as const,
+            requiredCzk: 666,
+            totalPaidCzk,
+          };
+        }
+      }
 
-    const balance = await computeCredits(ctx, user._id);
-    if (balance < totalCost) {
-      return { error: "NOT_ENOUGH_CREDITS" as const, totalCost, balance };
+      if (expectedCost !== undefined && totalCost !== expectedCost) {
+        return { error: "PRICE_CHANGED" as const, expectedCost, totalCost };
+      }
+
+      const balance = await computeCredits(ctx, user._id);
+      if (balance < totalCost) {
+        return { error: "NOT_ENOUGH_CREDITS" as const, totalCost, balance };
+      }
     }
 
     const now = Date.now();
@@ -234,6 +242,12 @@ export const commit = mutation({
         previousColor: px.previousColor,
       });
     }
+
+    if (isAdmin) {
+      return { totalCost: 0, remaining: 0 };
+    }
+
+    const balance = await computeCredits(ctx, user._id);
 
     const transactionId = await ctx.db.insert("transactions", {
       canvasId,

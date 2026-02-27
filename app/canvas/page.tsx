@@ -739,6 +739,7 @@ export default function CanvasPage() {
       return false;
     }
     setIsCommitting(true);
+    let committedAny = false;
     try {
       const payload = Object.entries(effectivePending).map(([key, color]) => {
         const [x, y] = key.split(",").map(Number);
@@ -747,36 +748,52 @@ export default function CanvasPage() {
       if (payload.length === 0) {
         return false;
       }
-      const result = await commitPixels({
-        token,
-        canvasId,
-        pixels: payload,
-        expectedCost: totalCost,
-      });
-      if (result && "error" in result) {
-        if (result.error === "NOT_ENOUGH_CREDITS") {
-          setConfirmOpen(false);
-          handleOpenBuyCredits();
-        } else if (result.error === "MIN_PAYMENT_REQUIRED") {
-          setConfirmOpen(false);
-          setMinPaymentBlockedOpen(true);
-        } else if (result.error === "OVERWRITE_LOCKED") {
-          setConfirmOpen(false);
-          setOverwriteBlockedOpen(true);
-        } else if (result.error === "CANVAS_LOCKED") {
-          setConfirmOpen(false);
-        } else if (result.error === "PRICE_CHANGED") {
-          setInitialCost(totalCost);
-          setInitialPendingCount(pendingCount);
+      const BATCH_SIZE = 500;
+      const batches: typeof payload[] = [];
+      for (let i = 0; i < payload.length; i += BATCH_SIZE) {
+        batches.push(payload.slice(i, i + BATCH_SIZE));
+      }
+
+      for (let i = 0; i < batches.length; i++) {
+        const result = await commitPixels({
+          token,
+          canvasId,
+          pixels: batches[i],
+          expectedCost: batches.length === 1 ? totalCost : undefined,
+        });
+        if (result && "error" in result) {
+          if (committedAny) {
+            dispatch({ type: "reset" });
+            return true;
+          }
+          if (result.error === "NOT_ENOUGH_CREDITS") {
+            setConfirmOpen(false);
+            handleOpenBuyCredits();
+          } else if (result.error === "MIN_PAYMENT_REQUIRED") {
+            setConfirmOpen(false);
+            setMinPaymentBlockedOpen(true);
+          } else if (result.error === "OVERWRITE_LOCKED") {
+            setConfirmOpen(false);
+            setOverwriteBlockedOpen(true);
+          } else if (result.error === "CANVAS_LOCKED") {
+            setConfirmOpen(false);
+          } else if (result.error === "PRICE_CHANGED") {
+            setInitialCost(totalCost);
+            setInitialPendingCount(pendingCount);
+            return false;
+          }
           return false;
         }
-        return false;
+        committedAny = true;
       }
       dispatch({ type: "reset" });
       return true;
     } catch (error) {
+      if (committedAny) {
+        dispatch({ type: "reset" });
+      }
       alert(error instanceof Error ? error.message : "Commit failed");
-      return false;
+      return committedAny;
     } finally {
       setIsCommitting(false);
     }
