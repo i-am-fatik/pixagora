@@ -36,16 +36,6 @@ export const getByCanvasPaginated = query({
   },
 });
 
-export const getByCanvasPaginated = query({
-  args: { canvasId: v.id("canvases"), paginationOpts: paginationOptsValidator },
-  handler: async (ctx, { canvasId, paginationOpts }) => {
-    return await ctx.db
-      .query("pixels")
-      .withIndex("by_canvas_yx", (q) => q.eq("canvasId", canvasId))
-      .paginate(paginationOpts);
-  },
-});
-
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function maybeCreateNextCanvas(
   ctx: MutationCtx,
