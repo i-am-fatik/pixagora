@@ -8,6 +8,7 @@ export type StampPixel = { x: number; y: number; color: string };
 type StampOptions = {
   defaultSrc?: string;
   defaultName?: string;
+  palette?: string[];
 };
 
 const DEFAULT_STAMP_SRC = "/stamps/urza.png";
@@ -39,6 +40,48 @@ function getImageSize(source: CanvasImageSource) {
   }
   return null;
 }
+
+type PaletteColor = {
+  r: number;
+  g: number;
+  b: number;
+  hex: string;
+};
+
+const parsePalette = (palette: string[]) =>
+  palette.map((c) => {
+    const hex = c.replace("#", "");
+    return {
+      r: parseInt(hex.substring(0, 2), 16),
+      g: parseInt(hex.substring(2, 4), 16),
+      b: parseInt(hex.substring(4, 6), 16),
+      hex: c.toUpperCase(),
+    };
+  });
+
+const mapPixelsToPalette = (
+  pixels: StampPixel[],
+  palette: PaletteColor[],
+) =>
+  pixels.map((px) => {
+    const hex = px.color.replace("#", "");
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    let best = palette[0];
+    let bestDist = Infinity;
+    for (const c of palette) {
+      const dr = r - c.r;
+      const dg = g - c.g;
+      const db = b - c.b;
+      const dist = dr * dr + dg * dg + db * db;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = c;
+      }
+    }
+    return { ...px, color: best.hex };
+  });
 
 export function useStampTool(options: StampOptions = {}) {
   const [tool, setTool] = useState<StampToolMode>("paint");
@@ -96,7 +139,7 @@ export function useStampTool(options: StampOptions = {}) {
       }
 
       const { data } = ctx.getImageData(0, 0, stampSize, stampSize);
-      const pixels: StampPixel[] = [];
+      let pixels: StampPixel[] = [];
       for (let y = 0; y < stampSize; y += 1) {
         for (let x = 0; x < stampSize; x += 1) {
           const idx = (y * stampSize + x) * 4;
@@ -112,8 +155,15 @@ export function useStampTool(options: StampOptions = {}) {
             g = Math.min(255, Math.round((g * 255) / a));
             b = Math.min(255, Math.round((b * 255) / a));
           }
-          pixels.push({ x: x - Math.floor(stampSize / 2), y: y - Math.floor(stampSize / 2), color: rgbToHex(r, g, b) });
+          pixels.push({
+            x: x - Math.floor(stampSize / 2),
+            y: y - Math.floor(stampSize / 2),
+            color: rgbToHex(r, g, b),
+          });
         }
+      }
+      if (options.palette && options.palette.length > 0) {
+        pixels = mapPixelsToPalette(pixels, parsePalette(options.palette));
       }
       setStampPixels(pixels);
       setStampReady(true);
@@ -163,7 +213,7 @@ export function useStampTool(options: StampOptions = {}) {
     return () => {
       cancelled = true;
     };
-  }, [stampSrc, stampSize]);
+  }, [stampSrc, stampSize, options.palette]);
 
   const handleFileChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,36 +256,7 @@ export function useStampTool(options: StampOptions = {}) {
     if (palette.length === 0) {
       return;
     }
-    const parsed = palette.map((c) => {
-      const hex = c.replace("#", "");
-      return {
-        r: parseInt(hex.substring(0, 2), 16),
-        g: parseInt(hex.substring(2, 4), 16),
-        b: parseInt(hex.substring(4, 6), 16),
-        hex: c.toUpperCase(),
-      };
-    });
-    setStampPixels((prev) =>
-      prev.map((px) => {
-        const hex = px.color.replace("#", "");
-        const r = parseInt(hex.substring(0, 2), 16);
-        const g = parseInt(hex.substring(2, 4), 16);
-        const b = parseInt(hex.substring(4, 6), 16);
-        let best = parsed[0];
-        let bestDist = Infinity;
-        for (const c of parsed) {
-          const dr = r - c.r;
-          const dg = g - c.g;
-          const db = b - c.b;
-          const dist = dr * dr + dg * dg + db * db;
-          if (dist < bestDist) {
-            bestDist = dist;
-            best = c;
-          }
-        }
-        return { ...px, color: best.hex };
-      }),
-    );
+    setStampPixels((prev) => mapPixelsToPalette(prev, parsePalette(palette)));
   }, []);
 
   return {

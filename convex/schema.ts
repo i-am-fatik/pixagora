@@ -77,7 +77,9 @@ export default defineSchema({
     price: v.number(),
     userId: v.id("users"),
     updatedAt: v.number(),
-  }).index("by_canvas_xy", ["canvasId", "x", "y"]),
+  })
+    .index("by_canvas_xy", ["canvasId", "x", "y"])
+    .index("by_canvas_yx", ["canvasId", "y", "x"]),
 
   chatMessages: defineTable({
     userId: v.id("users"),
