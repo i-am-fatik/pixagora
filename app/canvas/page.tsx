@@ -290,7 +290,7 @@ export default function CanvasPage() {
     canvasId ? { canvasId } : "skip",
   );
   const pixels = useMemo(
-    () => pixelsData?.chunks.flat() ?? [],
+    () => pixelsData?.chunks?.flat() ?? [],
     [pixelsData],
   );
 
