@@ -67,9 +67,10 @@ export async function GET() {
       throw new Error("No canvas found");
     }
 
-    const pixels = await client.query(api.pixels.getByCanvas, {
+    const pixelsData = await client.query(api.pixels.getByCanvas, {
       canvasId: canvas._id,
     });
+    const pixels = (pixelsData?.chunks ?? []).flat() as Pixel[];
 
     const { cells, previewWidth, previewHeight } = buildPreview(
       canvas.width,

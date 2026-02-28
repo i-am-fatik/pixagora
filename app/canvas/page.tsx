@@ -285,9 +285,13 @@ export default function CanvasPage() {
   const isAdmin = !!user?.isAdmin;
   const isCanvasLocked = !!activeCanvas?.locked && !isAdmin;
 
-  const pixels = useQuery(
+  const pixelsData = useQuery(
     api.pixels.getByCanvas,
     canvasId ? { canvasId } : "skip",
+  );
+  const pixels = useMemo(
+    () => pixelsData?.chunks.flat() ?? [],
+    [pixelsData],
   );
 
   const commitPixels = useMutation(api.pixels.commit);
@@ -818,7 +822,7 @@ export default function CanvasPage() {
       if (payload.length === 0) {
         return false;
       }
-      const BATCH_SIZE = 500;
+      const BATCH_SIZE = 1000;
       const batches: typeof payload[] = [];
       for (let i = 0; i < payload.length; i += BATCH_SIZE) {
         batches.push(payload.slice(i, i + BATCH_SIZE));

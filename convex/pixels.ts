@@ -1,19 +1,38 @@
 import { query, mutation, MutationCtx } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { nextPixelPrice } from "./pricing";
 import { computeCredits, computeTotalPaidCzk } from "./credits";
 
-const MAX_BATCH_SIZE = 500;
+const MAX_BATCH_SIZE = 1000;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 export const getByCanvas = query({
   args: { canvasId: v.id("canvases") },
   handler: async (ctx, { canvasId }) => {
-    return await ctx.db
+    const all = await ctx.db
       .query("pixels")
       .withIndex("by_canvas_xy", (q) => q.eq("canvasId", canvasId))
       .collect();
+    if (all.length <= 8000) {
+      return { chunks: [all] };
+    }
+    const chunks = [];
+    for (let i = 0; i < all.length; i += 8000) {
+      chunks.push(all.slice(i, i + 8000));
+    }
+    return { chunks };
+  },
+});
+
+export const getByCanvasPaginated = query({
+  args: { canvasId: v.id("canvases"), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { canvasId, paginationOpts }) => {
+    return await ctx.db
+      .query("pixels")
+      .withIndex("by_canvas_xy", (q) => q.eq("canvasId", canvasId))
+      .paginate(paginationOpts);
   },
 });
 
@@ -59,6 +78,30 @@ async function maybeCreateNextCanvas(
     order: nextOrder,
     createdAt: Date.now(),
   });
+}
+
+function parseHex(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+  ];
+}
+
+function nearestColor(color: string, palette: string[]): string {
+  const [r, g, b] = parseHex(color);
+  let best = palette[0];
+  let bestDist = Infinity;
+  for (const c of palette) {
+    const [pr, pg, pb] = parseHex(c);
+    const dist = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = c;
+    }
+  }
+  return best;
 }
 
 function validateCoordinate(value: number, label: string, max: number) {
@@ -133,7 +176,12 @@ export const commit = mutation({
     ];
 
     const filteredPixels = canvas.enforceColors
-      ? dedupedPixels.filter((px) => allowedColors.has(px.color.toLowerCase()))
+      ? dedupedPixels.map((px) => {
+          if (allowedColors.has(px.color.toLowerCase())) {
+            return px;
+          }
+          return { ...px, color: nearestColor(px.color, canvas.colors) };
+        })
       : dedupedPixels;
 
     if (filteredPixels.length === 0) {
