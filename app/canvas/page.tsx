@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
@@ -250,10 +250,21 @@ export default function CanvasPage() {
   const isAdmin = !!user?.isAdmin;
   const isCanvasLocked = !!activeCanvas?.locked && !isAdmin;
 
-  const pixels = useQuery(
-    api.pixels.getByCanvas,
+  const {
+    results: paginatedPixels,
+    status: pixelsStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.pixels.getByCanvasPaginated,
     canvasId ? { canvasId } : "skip",
+    { initialNumItems: 1000 },
   );
+
+  useEffect(() => {
+    if (pixelsStatus === "CanLoadMore") {
+      loadMore(1000);
+    }
+  }, [pixelsStatus, loadMore]);
 
   const commitPixels = useMutation(api.pixels.commit);
 
@@ -447,7 +458,7 @@ export default function CanvasPage() {
 
   const serverPixelMap = useMemo(() => {
     const map = new Map<string, { color: string; price: number; userId: string }>();
-    (pixels ?? []).forEach((pixel) => {
+    paginatedPixels.forEach((pixel) => {
       map.set(`${pixel.x},${pixel.y}`, {
         color: pixel.color,
         price: pixel.price,
@@ -455,11 +466,10 @@ export default function CanvasPage() {
       });
     });
     return map;
-  }, [pixels]);
-
-  const pendingForRender = moveDraft ? {} : pendingState.pending;
+  }, [paginatedPixels]);
 
   const combinedPixelMap = useMemo(() => {
+    const pendingForRender = moveDraft ? {} : pendingState.pending;
     const map = new Map<string, string>();
     serverPixelMap.forEach((val, key) => {
       map.set(key, val.color);
@@ -468,7 +478,7 @@ export default function CanvasPage() {
       map.set(key, color);
     });
     return map;
-  }, [serverPixelMap, pendingForRender]);
+  }, [serverPixelMap, moveDraft, pendingState.pending]);
 
   const activeCanvasPixels = useMemo(() => {
     const result: { x: number; y: number; color: string }[] = [];
@@ -860,7 +870,7 @@ export default function CanvasPage() {
                     Načítám uživatele…
                   </div>
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center overflow-hidden">
+                  <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
                     <Canvas
                       pixels={
                         index === activeReelIndex ? activeCanvasPixels : []
@@ -898,6 +908,11 @@ export default function CanvasPage() {
                         }
                       }}
                     />
+                    {index === activeReelIndex && pixelsStatus !== "Exhausted" && (
+                      <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
+                        Načítám pixely…
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

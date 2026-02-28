@@ -240,8 +240,8 @@ function lineCells(
   y1: number,
 ): { x: number; y: number }[] {
   const cells: { x: number; y: number }[] = [];
-  let dx = Math.abs(x1 - x0);
-  let dy = -Math.abs(y1 - y0);
+  const dx = Math.abs(x1 - x0);
+  const dy = -Math.abs(y1 - y0);
   const sx = x0 < x1 ? 1 : -1;
   const sy = y0 < y1 ? 1 : -1;
   let err = dx + dy;
@@ -823,11 +823,25 @@ export function Canvas({
     };
   }, []);
 
-  useEffect(() => {
+  // Reset preview state when move preview props change (React "setState during render" pattern)
+  const [prevMovePreview, setPrevMovePreview] = useState({
+    active: movePreviewActive,
+    pixels: movePreviewPixels,
+  });
+  if (
+    prevMovePreview.active !== movePreviewActive ||
+    prevMovePreview.pixels !== movePreviewPixels
+  ) {
+    setPrevMovePreview({ active: movePreviewActive, pixels: movePreviewPixels });
     if (!movePreviewActive || !movePreviewPixels || movePreviewPixels.length === 0) {
       setPreviewPos(null);
       setPreviewCell(null);
       setIsPreviewDragging(false);
+    }
+  }
+  // Ref cleanup in effect (no setState, so no cascading render)
+  useEffect(() => {
+    if (!movePreviewActive || !movePreviewPixels || movePreviewPixels.length === 0) {
       dragOffsetRef.current = null;
       dragPointerIdRef.current = null;
     }

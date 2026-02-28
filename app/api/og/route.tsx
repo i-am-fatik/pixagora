@@ -10,6 +10,7 @@ const HEIGHT = 630;
 const BG = "#0b0b0b";
 
 type Pixel = { x: number; y: number; color: string };
+type PaginatedResult = { page: Pixel[]; isDone: boolean; continueCursor: string };
 
 function buildPreview(
   width: number,
@@ -39,7 +40,6 @@ function packRows(
   cells: string[],
   width: number,
   height: number,
-  cellSize: number,
 ) {
   const rows: { key: number; cells: { key: number; color: string }[] }[] = [];
   for (let y = 0; y < height; y += 1) {
@@ -67,9 +67,19 @@ export async function GET() {
       throw new Error("No canvas found");
     }
 
-    const pixels = await client.query(api.pixels.getByCanvas, {
-      canvasId: canvas._id,
-    });
+    const allPixels: Pixel[] = [];
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone) {
+      const result: PaginatedResult = await client.query(
+        api.pixels.getByCanvasPaginated,
+        { canvasId: canvas._id, paginationOpts: { numItems: 1000, cursor } },
+      );
+      allPixels.push(...result.page);
+      isDone = result.isDone;
+      cursor = result.continueCursor;
+    }
+    const pixels = allPixels;
 
     const { cells, previewWidth, previewHeight } = buildPreview(
       canvas.width,
@@ -85,9 +95,7 @@ export async function GET() {
         Math.min(previewMaxW / previewWidth, previewMaxH / previewHeight),
       ),
     );
-    const gridWidth = previewWidth * cellSize;
-    const gridHeight = previewHeight * cellSize;
-    const rows = packRows(cells, previewWidth, previewHeight, cellSize);
+    const rows = packRows(cells, previewWidth, previewHeight);
 
     return new ImageResponse(
       (

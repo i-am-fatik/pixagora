@@ -1,4 +1,5 @@
 import { query, mutation, MutationCtx } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { nextPixelPrice } from "./pricing";
@@ -14,6 +15,16 @@ export const getByCanvas = query({
       .query("pixels")
       .withIndex("by_canvas_xy", (q) => q.eq("canvasId", canvasId))
       .collect();
+  },
+});
+
+export const getByCanvasPaginated = query({
+  args: { canvasId: v.id("canvases"), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { canvasId, paginationOpts }) => {
+    return await ctx.db
+      .query("pixels")
+      .withIndex("by_canvas_yx", (q) => q.eq("canvasId", canvasId))
+      .paginate(paginationOpts);
   },
 });
 
