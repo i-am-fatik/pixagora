@@ -247,7 +247,8 @@ export default function CanvasPage() {
 
   const activeCanvas = canvases?.[activeReelIndex];
   const canvasId = activeCanvas?._id;
-  const isCanvasLocked = !!activeCanvas?.locked;
+  const isAdmin = !!user?.isAdmin;
+  const isCanvasLocked = !!activeCanvas?.locked && !isAdmin;
 
   const pixels = useQuery(
     api.pixels.getByCanvas,

@@ -13,7 +13,7 @@ export const getByToken = query({
       return null;
     }
     const credits = await computeCredits(ctx, user._id);
-    return { _id: user._id, email: user.email, credits };
+    return { _id: user._id, email: user.email, credits, isAdmin: !!user.isAdmin };
   },
 });
 
