@@ -24,6 +24,11 @@ function pickColor(seed: string): string {
 
 function displayNameForUser(user: { nickname?: string }) {
   const nick = user.nickname?.trim();
+
+  if (nick?.toLowerCase() === "urza") {
+    return "Anonym";
+  }
+
   return nick && nick.length > 0 ? nick : "Anonym";
 }
 
@@ -60,7 +65,9 @@ export const list = query({
     });
 
     const sliced =
-      typeof limit === "number" ? entries.slice(0, Math.max(0, limit)) : entries;
+      typeof limit === "number"
+        ? entries.slice(0, Math.max(0, limit))
+        : entries;
     return { entries: sliced, total: entries.length };
   },
 });
