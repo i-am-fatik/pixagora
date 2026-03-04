@@ -42,6 +42,7 @@ type CanvasPageLayoutProps = {
   replayCanvasId?: string;
   isFreeModePainting?: boolean;
   onFreeModePaintingChange?: (value: boolean) => void;
+  toolControls?: ReactNode;
 };
 
 export function CanvasPageLayout({
@@ -78,6 +79,7 @@ export function CanvasPageLayout({
   replayCanvasId,
   isFreeModePainting = false,
   onFreeModePaintingChange,
+  toolControls,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
 
@@ -225,6 +227,12 @@ export function CanvasPageLayout({
                   enforceColors={enforceColors}
                 />
               </div>
+
+              {toolControls && (
+                <div className="flex items-center gap-2">
+                  {toolControls}
+                </div>
+              )}
 
               <span className="hidden h-5 w-px bg-muted-foreground/30 sm:inline-block" />
               <div className="flex items-center gap-1">

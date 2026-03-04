@@ -23,6 +23,8 @@ import { Tutorial } from "./Tutorial";
 import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
 import { Move } from "lucide-react";
+import { useStampTool, type StampPixel } from "./useStampTool";
+import { StampToolControls } from "./StampToolControls";
 
 const STARTOVAC_URL = "https://www.startovac.cz/projekty/anarchoagorismus/";
 
@@ -44,6 +46,7 @@ type PendingState = {
 
 type PendingAction =
   | { type: "apply"; key: string; nextPending?: string }
+  | { type: "applyBatch"; changes: { key: string; nextPending?: string }[] }
   | { type: "replace"; nextPending: Record<string, string> }
   | { type: "undo" }
   | { type: "redo" }
@@ -55,6 +58,57 @@ const initialPendingState: PendingState = {
   pending: {},
   history: [],
   redo: [],
+};
+
+type PaletteColor = {
+  r: number;
+  g: number;
+  b: number;
+  hex: string;
+};
+
+const parsePalette = (palette: string[]): PaletteColor[] =>
+  palette.map((c) => {
+    const hex = c.replace("#", "");
+    return {
+      r: parseInt(hex.substring(0, 2), 16),
+      g: parseInt(hex.substring(2, 4), 16),
+      b: parseInt(hex.substring(4, 6), 16),
+      hex: c.toUpperCase(),
+    };
+  });
+
+const nearestPaletteColor = (color: string, palette: PaletteColor[]) => {
+  const hex = color.replace("#", "");
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  let best = palette[0];
+  let bestDist = Infinity;
+  for (const c of palette) {
+    const dr = r - c.r;
+    const dg = g - c.g;
+    const db = b - c.b;
+    const dist = dr * dr + dg * dg + db * db;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = c;
+    }
+  }
+  return best.hex;
+};
+
+const remapStampPixels = (
+  pixels: StampPixel[],
+  palette: PaletteColor[],
+): StampPixel[] => {
+  if (palette.length === 0) {
+    return pixels;
+  }
+  return pixels.map((px) => ({
+    ...px,
+    color: nearestPaletteColor(px.color, palette),
+  }));
 };
 
 function pendingReducer(
@@ -79,6 +133,37 @@ function pendingReducer(
           ...state.history,
           { key: action.key, prevPending, nextPending: action.nextPending },
         ],
+        redo: [],
+      };
+    }
+    case "applyBatch": {
+      if (action.changes.length === 0) {
+        return state;
+      }
+      const deduped = new Map<string, string | undefined>();
+      for (const change of action.changes) {
+        deduped.set(change.key, change.nextPending);
+      }
+      const nextPendingMap = { ...state.pending };
+      const changes: PendingChange[] = [];
+      deduped.forEach((nextPending, key) => {
+        const prevPending = state.pending[key];
+        if (prevPending === nextPending) {
+          return;
+        }
+        if (nextPending === undefined) {
+          delete nextPendingMap[key];
+        } else {
+          nextPendingMap[key] = nextPending;
+        }
+        changes.push({ key, prevPending, nextPending });
+      });
+      if (changes.length === 0) {
+        return state;
+      }
+      return {
+        pending: nextPendingMap,
+        history: [...state.history, changes],
         redo: [],
       };
     }
@@ -153,7 +238,10 @@ function pendingReducer(
       };
     }
     case "merge-last": {
-      const fromIndex = Math.max(0, Math.min(action.fromIndex, state.history.length));
+      const fromIndex = Math.max(
+        0,
+        Math.min(action.fromIndex, state.history.length),
+      );
       const toMerge = state.history.slice(fromIndex);
       if (toMerge.length <= 1) {
         return state;
@@ -277,6 +365,12 @@ export default function CanvasPage() {
   const gridHeight = activeCanvas?.height ?? 20;
   const pixelPrice = activeCanvas?.pixelPrice ?? 1;
   const totalCanvases = canvases?.length ?? 0;
+  const stampTool = useStampTool({ palette: colors });
+  const parsedPalette = useMemo(() => parsePalette(colors), [colors]);
+  const mappedStampPixels = useMemo(
+    () => remapStampPixels(stampTool.stampPixels, parsedPalette),
+    [stampTool.stampPixels, parsedPalette],
+  );
 
   useEffect(() => {
     if (!canvasId || canvasId === canvasIdRef.current) {
@@ -394,7 +488,10 @@ export default function CanvasPage() {
   const isLoadingUser = loggedIn && user === undefined;
 
   useEffect(() => {
-    if (canvases !== undefined && !localStorage.getItem("pixagora-tutorial-done")) {
+    if (
+      canvases !== undefined &&
+      !localStorage.getItem("pixagora-tutorial-done")
+    ) {
       setTutorialStep(1);
     }
   }, [canvases]);
@@ -457,7 +554,10 @@ export default function CanvasPage() {
   };
 
   const serverPixelMap = useMemo(() => {
-    const map = new Map<string, { color: string; price: number; userId: string }>();
+    const map = new Map<
+      string,
+      { color: string; price: number; userId: string }
+    >();
     paginatedPixels.forEach((pixel) => {
       map.set(`${pixel.x},${pixel.y}`, {
         color: pixel.color,
@@ -560,7 +660,10 @@ export default function CanvasPage() {
       if (baselinePrice === undefined) {
         return false;
       }
-      const baselineCost = nextPixelPrice(pixelPrice, baselinePrice ?? undefined);
+      const baselineCost = nextPixelPrice(
+        pixelPrice,
+        baselinePrice ?? undefined,
+      );
       const currentCost = nextPixelPrice(
         pixelPrice,
         serverPixelMap.get(key)?.price,
@@ -669,6 +772,40 @@ export default function CanvasPage() {
       setMoveDraft(null);
       return;
     }
+    if (stampTool.tool === "stamp") {
+      if (!stampTool.stampReady || mappedStampPixels.length === 0) {
+        return;
+      }
+      const changes: { key: string; nextPending?: string }[] = [];
+      for (const px of mappedStampPixels) {
+        const targetX = x + px.x;
+        const targetY = y + px.y;
+        if (
+          targetX < 0 ||
+          targetY < 0 ||
+          targetX >= gridWidth ||
+          targetY >= gridHeight
+        ) {
+          continue;
+        }
+        const key = `${targetX},${targetY}`;
+        const serverColor = serverPixelMap.get(key)?.color ?? "#ffffff";
+        const visibleColor = (
+          pendingState.pending[key] ?? serverColor
+        ).toLowerCase();
+        const nextColor = px.color.toLowerCase();
+        if (nextColor === visibleColor) {
+          continue;
+        }
+        const nextPending =
+          nextColor === serverColor.toLowerCase() ? undefined : px.color;
+        changes.push({ key, nextPending });
+      }
+      if (changes.length > 0) {
+        dispatch({ type: "applyBatch", changes });
+      }
+      return;
+    }
     const key = `${x},${y}`;
     const serverColor = serverPixelMap.get(key)?.color;
     const visibleColor = (
@@ -759,8 +896,8 @@ export default function CanvasPage() {
       if (payload.length === 0) {
         return false;
       }
-      const BATCH_SIZE = 500;
-      const batches: typeof payload[] = [];
+      const BATCH_SIZE = 1000;
+      const batches: (typeof payload)[] = [];
       for (let i = 0; i < payload.length; i += BATCH_SIZE) {
         batches.push(payload.slice(i, i + BATCH_SIZE));
       }
@@ -834,7 +971,9 @@ export default function CanvasPage() {
         onCommit={handleOpenConfirm}
         canUndo={canUndo}
         canRedo={canRedo}
-        canCommit={pendingCount > 0 && !!canvasId && !moveDraft && !isCanvasLocked}
+        canCommit={
+          pendingCount > 0 && !!canvasId && !moveDraft && !isCanvasLocked
+        }
         commitLocked={isCanvasLocked}
         isCommitting={isCommitting}
         onClearPending={handleOpenClearConfirm}
@@ -849,6 +988,11 @@ export default function CanvasPage() {
         replayCanvasId={canvasId}
         isFreeModePainting={isFreeModePainting}
         onFreeModePaintingChange={setIsFreeModePainting}
+        toolControls={
+          <StampToolControls
+            stamp={stampTool}
+          />
+        }
       >
         {totalCanvases === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
@@ -889,30 +1033,54 @@ export default function CanvasPage() {
                         }
                       }}
                       movePreviewPixels={
-                        index === activeReelIndex ? moveDraft?.pixels ?? null : null
+                        index === activeReelIndex
+                          ? (moveDraft?.pixels ?? null)
+                          : null
                       }
-                      movePreviewActive={index === activeReelIndex && !!moveDraft}
+                      movePreviewActive={
+                        index === activeReelIndex && !!moveDraft
+                      }
                       highlightedPixels={
                         index === activeReelIndex
                           ? highlightedPixelSet
                           : undefined
                       }
+                      stampOverlayPixels={
+                        index === activeReelIndex &&
+                        stampTool.tool === "stamp" &&
+                        stampTool.stampReady
+                          ? mappedStampPixels
+                          : null
+                      }
+                      onWheelStampResize={(delta) => {
+                        stampTool.setStampSize((prev) =>
+                          Math.max(
+                            stampTool.minStampSize,
+                            Math.min(stampTool.maxStampSize, prev + delta),
+                          ),
+                        );
+                      }}
                       isFreeModePainting={isFreeModePainting}
                       onStrokeStart={() => {
-                        strokeHistoryStartRef.current = pendingState.history.length;
+                        strokeHistoryStartRef.current =
+                          pendingState.history.length;
                       }}
                       onStrokeEnd={() => {
                         if (strokeHistoryStartRef.current !== null) {
-                          dispatch({ type: "merge-last", fromIndex: strokeHistoryStartRef.current });
+                          dispatch({
+                            type: "merge-last",
+                            fromIndex: strokeHistoryStartRef.current,
+                          });
                           strokeHistoryStartRef.current = null;
                         }
                       }}
                     />
-                    {index === activeReelIndex && pixelsStatus !== "Exhausted" && (
-                      <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
-                        Načítám pixely…
-                      </div>
-                    )}
+                    {index === activeReelIndex &&
+                      pixelsStatus !== "Exhausted" && (
+                        <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
+                          Načítám pixely…
+                        </div>
+                      )}
                   </div>
                 )}
               </div>
@@ -964,11 +1132,13 @@ export default function CanvasPage() {
             className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
           >
             <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Minimum pro kreslení je 69 Kč</h2>
+              <h2 className="text-xl font-semibold">
+                Minimum pro kreslení je 69 Kč
+              </h2>
               <p className="text-sm text-muted-foreground">
-                Aby bylo možné kreslit, je potřeba podpořit projekt
-                částkou alespoň <strong>69 Kč</strong>. Dobij si kredity
-                pomocí tlačítek níže.
+                Aby bylo možné kreslit, je potřeba podpořit projekt částkou
+                alespoň <strong>69 Kč</strong>. Dobij si kredity pomocí tlačítek
+                níže.
               </p>
             </div>
             <div className="border-t pt-3">
@@ -980,7 +1150,9 @@ export default function CanvasPage() {
                   className="flex h-10 items-center justify-between gap-3 rounded-md px-4 text-sm font-semibold text-white transition hover:opacity-90"
                   style={{ backgroundColor: "#1ebd39" }}
                 >
-                  <span className="flex-1 text-left">Podpořit na Startovači</span>
+                  <span className="flex-1 text-left">
+                    Podpořit na Startovači
+                  </span>
                 </a>
                 <button
                   type="button"
@@ -1014,12 +1186,14 @@ export default function CanvasPage() {
             className="w-full max-w-sm space-y-4 rounded-2xl border bg-card p-6 shadow-lg"
           >
             <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Překreslování je zamčené</h2>
+              <h2 className="text-xl font-semibold">
+                Překreslování je zamčené
+              </h2>
               <p className="text-sm text-muted-foreground">
                 Překreslovat cizí pixely můžeš jen pokud jsi dohromady zakoupil
                 odměny za alespoň <strong>666 Kč</strong>. Přesuň svoji malbu
-                pomocí nástroje přesunout, nebo si dobij kredity pomocí
-                tlačítek níže.
+                pomocí nástroje přesunout, nebo si dobij kredity pomocí tlačítek
+                níže.
               </p>
             </div>
             <Button
@@ -1042,7 +1216,9 @@ export default function CanvasPage() {
                   className="flex h-10 items-center justify-between gap-3 rounded-md px-4 text-sm font-semibold text-white transition hover:opacity-90"
                   style={{ backgroundColor: "#1ebd39" }}
                 >
-                  <span className="flex-1 text-left">Podpořit na Startovači</span>
+                  <span className="flex-1 text-left">
+                    Podpořit na Startovači
+                  </span>
                   <span className="flex items-center gap-1.5">
                     <svg
                       viewBox="0 0 24 24"
