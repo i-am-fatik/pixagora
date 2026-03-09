@@ -31,7 +31,7 @@ export const getByCanvasPaginated = query({
   handler: async (ctx, { canvasId, paginationOpts }) => {
     return await ctx.db
       .query("pixels")
-      .withIndex("by_canvas_xy", (q) => q.eq("canvasId", canvasId))
+      .withIndex("by_canvas_yx", (q) => q.eq("canvasId", canvasId))
       .paginate(paginationOpts);
   },
 });

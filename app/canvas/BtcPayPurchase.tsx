@@ -59,7 +59,7 @@ export function BtcPayPurchase({
   const [amountCzk, setAmountCzk] = useState(666);
   const [isCreating, setIsCreating] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
-  const [scriptReady, setScriptReady] = useState(false);
+  const [, setScriptReady] = useState(false);
   const createInvoice = useAction(api.btcpay.createInvoice);
   const modalRef = useRef<HTMLDivElement | null>(null);
 

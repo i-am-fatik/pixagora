@@ -50,6 +50,28 @@ export const setAdmin = internalMutation({
   },
 });
 
+export const getCreditLeaderboard = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const allUsers = await ctx.db.query("users").collect();
+    const results = await Promise.all(
+      allUsers.map(async (user) => {
+        const credits = await computeCredits(ctx, user._id);
+        return {
+          userId: user._id,
+          email: user.email,
+          nickname: user.nickname ?? null,
+          credits,
+        };
+      }),
+    );
+
+    return results
+      .filter((r) => r.credits > 0)
+      .sort((a, b) => b.credits - a.credits);
+  },
+});
+
 export const getEmailAndTokenById = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
