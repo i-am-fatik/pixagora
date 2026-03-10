@@ -26,6 +26,13 @@ export async function computeCredits(
     .collect();
   const earned = payments.reduce((sum, p) => sum + p.creditsDelta, 0);
 
+  // Use cached totalSpent on user doc (avoids scanning large transaction docs)
+  const user = await ctx.db.get(userId);
+  if (user && typeof user.totalSpent === "number") {
+    return earned - user.totalSpent;
+  }
+
+  // Fallback for users not yet migrated
   const transactions = await ctx.db
     .query("transactions")
     .withIndex("by_user", (q) => q.eq("userId", userId))

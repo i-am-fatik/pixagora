@@ -36,25 +36,40 @@ export function PixelPreview({ pixels, maxSize = 140 }: PixelPreviewProps) {
     const avgLum = lumSum / pixels.length;
     const width = maxX - minX + 1 + 2;
     const height = maxY - minY + 1 + 2;
-    const cell = Math.max(1, Math.floor(maxSize / Math.max(width, height)));
-    return { minX, minY, width, height, cell, avgLum };
+    const maxDim = Math.max(width, height);
+    const cell = Math.max(1, Math.floor(maxSize / maxDim));
+    const scale = maxDim * cell > maxSize ? maxSize / (maxDim * cell) : 1;
+    return { minX, minY, width, height, cell, avgLum, scale };
   }, [pixels, maxSize]);
 
   if (!grid) {
     return null;
   }
 
-  const bg = grid.avgLum > 0.6 ? "#1a1a1a" : grid.avgLum > 0.35 ? "#9a9a9a" : "#e5e5e5";
+  const bg = "#ffffff";
+
+  const rawW = grid.width * grid.cell;
+  const rawH = grid.height * grid.cell;
+  const needsScale = grid.scale < 1;
 
   return (
     <div
       className="relative overflow-hidden rounded-lg"
       style={{
-        width: grid.width * grid.cell,
-        height: grid.height * grid.cell,
-        backgroundColor: bg,
+        width: needsScale ? rawW * grid.scale : rawW,
+        height: needsScale ? rawH * grid.scale : rawH,
       }}
     >
+      <div
+        className="absolute left-0 top-0"
+        style={{
+          width: rawW,
+          height: rawH,
+          backgroundColor: bg,
+          transform: needsScale ? `scale(${grid.scale})` : undefined,
+          transformOrigin: "top left",
+        }}
+      >
       {pixels.map((p) => {
         const left = (p.x - grid.minX + 1) * grid.cell;
         const top = (p.y - grid.minY + 1) * grid.cell;
@@ -72,6 +87,7 @@ export function PixelPreview({ pixels, maxSize = 140 }: PixelPreviewProps) {
           />
         );
       })}
+      </div>
     </div>
   );
 }

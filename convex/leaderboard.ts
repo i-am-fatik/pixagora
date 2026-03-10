@@ -1,5 +1,6 @@
-import { query } from "./_generated/server";
+import { query, internalMutation, internalQuery, internalAction } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
 const CHAT_COLORS = [
@@ -35,27 +36,16 @@ function displayNameForUser(user: { nickname?: string }) {
 export const list = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit }) => {
-    const transactions = await ctx.db.query("transactions").collect();
-    const counts = new Map<Id<"users">, number>();
-    for (const tx of transactions) {
-      const current = counts.get(tx.userId) ?? 0;
-      counts.set(tx.userId, current + tx.changes.length);
-    }
-
-    const entries = [];
-    for (const [userId, count] of counts.entries()) {
-      const user = await ctx.db.get(userId);
-      if (!user || user.isAdmin) {
-        continue;
-      }
-      entries.push({
-        userId,
-        count,
-        displayName: displayNameForUser(user),
-        displayColor: user.nicknameColor ?? pickColor(user._id),
-        displayEmail: user.showEmail ? user.email : undefined,
-      });
-    }
+    const users = await ctx.db.query("users").collect();
+    const entries = users
+      .filter((u) => !u.isAdmin && (u.totalPixelCount ?? 0) > 0)
+      .map((u) => ({
+        userId: u._id,
+        count: u.totalPixelCount ?? 0,
+        displayName: displayNameForUser(u),
+        displayColor: u.nicknameColor ?? pickColor(u._id),
+        displayEmail: u.showEmail ? u.email : undefined,
+      }));
 
     entries.sort((a, b) => {
       if (b.count !== a.count) {
@@ -75,27 +65,15 @@ export const list = query({
 export const getRank = query({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
-    const transactions = await ctx.db.query("transactions").collect();
-    const counts = new Map<Id<"users">, number>();
-    for (const tx of transactions) {
-      const current = counts.get(tx.userId) ?? 0;
-      counts.set(tx.userId, current + tx.changes.length);
-    }
-
-    const entries = [];
-    for (const [entryUserId, count] of counts.entries()) {
-      const user = await ctx.db.get(entryUserId);
-      if (!user || user.isAdmin) {
-        continue;
-      }
-      entries.push({
-        userId: entryUserId,
-        count,
-        displayName: displayNameForUser(user),
-        displayColor: user.nicknameColor ?? pickColor(user._id),
-        displayEmail: user.showEmail ? user.email : undefined,
-      });
-    }
+    const users = await ctx.db.query("users").collect();
+    const entries = users
+      .filter((u) => !u.isAdmin && (u.totalPixelCount ?? 0) > 0)
+      .map((u) => ({
+        userId: u._id,
+        count: u.totalPixelCount ?? 0,
+        displayName: displayNameForUser(u),
+        displayColor: u.nicknameColor ?? pickColor(u._id),
+      }));
 
     entries.sort((a, b) => {
       if (b.count !== a.count) {
@@ -127,12 +105,92 @@ export const getStats = query({
       }
     }
 
-    const transactions = await ctx.db.query("transactions").collect();
+    const users = await ctx.db.query("users").collect();
     let totalPx = 0;
-    for (const tx of transactions) {
-      totalPx += tx.changes.length;
+    for (const u of users) {
+      totalPx += u.totalPixelCount ?? 0;
     }
 
     return { totalCzk, totalPx };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Migration: backfill totalPixelCount and totalSpent per user.
+// Processes one user at a time to stay under byte limits.
+//   npx convex run leaderboard:migrateUserStats
+// ---------------------------------------------------------------------------
+// Read one page of a user's transactions — stays under byte limit
+export const _aggregateTxPage = internalQuery({
+  args: { userId: v.id("users"), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { userId, cursor }) => {
+    const result = await ctx.db
+      .query("transactions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .paginate({ numItems: 20, cursor });
+    let spent = 0;
+    let pixels = 0;
+    for (const tx of result.page) {
+      spent += tx.cost ?? 0;
+      pixels += tx.changes.length;
+    }
+    return {
+      spent,
+      pixels,
+      isDone: result.isDone,
+      cursor: result.continueCursor,
+    };
+  },
+});
+
+export const _patchUserStats = internalMutation({
+  args: {
+    userId: v.id("users"),
+    totalPixelCount: v.number(),
+    totalSpent: v.number(),
+  },
+  handler: async (ctx, { userId, totalPixelCount, totalSpent }) => {
+    await ctx.db.patch(userId, { totalPixelCount, totalSpent });
+  },
+});
+
+export const _listUserIds = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const users = await ctx.db.query("users").collect();
+    return users.map((u) => u._id);
+  },
+});
+
+export const migrateUserStats = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const userIds: Id<"users">[] = await ctx.runQuery(
+      internal.leaderboard._listUserIds,
+    );
+    let migrated = 0;
+    for (const userId of userIds) {
+      let totalSpent = 0;
+      let totalPixelCount = 0;
+      let cursor: string | null = null;
+      let isDone = false;
+      while (!isDone) {
+        const page: { spent: number; pixels: number; isDone: boolean; cursor: string } = await ctx.runQuery(
+          internal.leaderboard._aggregateTxPage,
+          { userId, cursor },
+        );
+        totalSpent += page.spent;
+        totalPixelCount += page.pixels;
+        isDone = page.isDone;
+        cursor = page.cursor;
+      }
+      await ctx.runMutation(internal.leaderboard._patchUserStats, {
+        userId,
+        totalPixelCount,
+        totalSpent,
+      });
+      migrated++;
+    }
+    return { migrated };
   },
 });

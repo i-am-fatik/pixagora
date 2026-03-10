@@ -10,6 +10,7 @@ import { Canvas } from "../Canvas";
 import { ReplayControls, type Speed } from "./ReplayControls";
 
 const CONVEX_ID_RE = /^[a-z0-9][a-z0-9_|]+$/;
+const EMPTY_REPLAY_PENDING: Record<string, string> = {};
 
 const LOGO_SQUARES = ["var(--logo-primary)", "#7F7F7F", "#FFD400", "#F7931A"];
 
@@ -79,7 +80,7 @@ function ReplayPageInner() {
   const [speed, setSpeed] = useState<Speed>(1);
   const [prevCanvasId, setPrevCanvasId] = useState(canvasId);
 
-  type Pixel = { x: number; y: number; color: string };
+
 
   if (canvasId !== prevCanvasId) {
     setPrevCanvasId(canvasId);
@@ -113,16 +114,16 @@ function ReplayPageInner() {
     return () => clearTimeout(timer);
   }, [isPlaying, stepIndex, pixelOffset, speed, sortedTransactions]);
 
-  const displayPixels = useMemo(() => {
+  const displayPixelMap = useMemo(() => {
     if (!sortedTransactions) {
-      return [];
+      return new Map<string, string>();
     }
-    const map = new Map<string, Pixel>();
+    const map = new Map<string, string>();
 
     // All completed transactions
     for (let i = 0; i < stepIndex && i < sortedTransactions.length; i++) {
       for (const c of sortedTransactions[i].changes) {
-        map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
+        map.set(`${c.x},${c.y}`, c.color);
       }
     }
 
@@ -132,11 +133,11 @@ function ReplayPageInner() {
       const count = Math.min(pixelOffset, tx.changes.length);
       for (let j = 0; j < count; j++) {
         const c = tx.changes[j];
-        map.set(`${c.x},${c.y}`, { x: c.x, y: c.y, color: c.color });
+        map.set(`${c.x},${c.y}`, c.color);
       }
     }
 
-    return Array.from(map.values());
+    return map;
   }, [sortedTransactions, stepIndex, pixelOffset]);
 
   if (!canvasIdParam || !canvasId) {
@@ -186,7 +187,8 @@ function ReplayPageInner() {
             <p className="text-sm text-muted-foreground">Načítám…</p>
           ) : (
             <Canvas
-              pixels={displayPixels}
+              basePixelMap={displayPixelMap}
+              pendingPixels={EMPTY_REPLAY_PENDING}
               width={gridWidth}
               height={gridHeight}
               selectedColor="transparent"

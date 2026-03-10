@@ -8,6 +8,7 @@ import {
   signPixagoraPayload,
   timingSafeEqualHex,
 } from "./webhook_utils";
+import { servePng } from "./snapshots";
 
 const http = httpRouter();
 
@@ -319,6 +320,12 @@ http.route({
 
     return jsonResponse({ ok: true });
   }),
+});
+
+http.route({
+  pathPrefix: "/api/canvas/",
+  method: "GET",
+  handler: servePng,
 });
 
 export default http;

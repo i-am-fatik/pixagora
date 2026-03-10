@@ -61,6 +61,7 @@ export function StampToolControls({ stamp, enforceColors, colors }: StampToolCon
           step={1}
           value={stampSize}
           onChange={(e) => setStampSize(Number(e.target.value))}
+          onWheel={(e) => e.currentTarget.blur()}
           className="w-20 accent-primary"
           title={`Velikost razítka: ${stampSize}×${stampSize}`}
         />

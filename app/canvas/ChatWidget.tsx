@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   Bitcoin,
@@ -198,7 +198,7 @@ function ChatPanel({
   const { results, status, loadMore } = usePaginatedQuery(
     api.chat.list,
     {},
-    { initialNumItems: 40 },
+    { initialNumItems: 20 },
   );
   const messages = useMemo(() => [...results].reverse(), [results]);
 
@@ -334,7 +334,7 @@ function ChatPanel({
       prevScrollHeight.current = el.scrollHeight;
       prevScrollTop.current = el.scrollTop;
       loadingOlder.current = true;
-      loadMore(30);
+      loadMore(20);
     }
   };
 
@@ -419,24 +419,24 @@ function ChatPanel({
     setEmojiOpen((prev) => !prev);
   };
 
-  const togglePreview = (commitId?: Id<"transactions">, buttonEl?: HTMLElement) => {
+  const scrollRefForPreview = scrollRef;
+  const togglePreview = useCallback((commitId?: Id<"transactions">, buttonEl?: HTMLElement) => {
     if (!commitId) {
       return;
     }
-    if (previewCommitId === commitId) {
-      setPreviewCommitId(null);
-      return;
-    }
-    if (buttonEl && scrollRef.current) {
-      const scrollRect = scrollRef.current.getBoundingClientRect();
-      const buttonRect = buttonEl.getBoundingClientRect();
-      const spaceAbove = buttonRect.top - scrollRect.top;
-      setPreviewAbove(spaceAbove >= 180);
-    } else {
-      setPreviewAbove(true);
-    }
-    setPreviewCommitId(commitId);
-  };
+    setPreviewCommitId((prev) => {
+      if (prev === commitId) return null;
+      if (buttonEl && scrollRefForPreview.current) {
+        const scrollRect = scrollRefForPreview.current.getBoundingClientRect();
+        const buttonRect = buttonEl.getBoundingClientRect();
+        const spaceAbove = buttonRect.top - scrollRect.top;
+        setPreviewAbove(spaceAbove >= 180);
+      } else {
+        setPreviewAbove(true);
+      }
+      return commitId;
+    });
+  }, [scrollRefForPreview]);
 
   const insertEmoji = (emoji: string) => {
     const el = textareaRef.current;
@@ -537,6 +537,18 @@ function ChatPanel({
               Načítám starší zprávy…
             </div>
           )}
+          {messages.length === 0 && status !== "Exhausted" && (
+            <div className="flex flex-col gap-2 animate-pulse">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-start gap-2 px-2 py-1">
+                  <div className="h-3 w-16 rounded bg-muted-foreground/10" />
+                  <div className="flex-1 space-y-1">
+                    <div className="h-3 rounded bg-muted-foreground/10" style={{ width: `${40 + (i * 17) % 50}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {messages.map((message, index) => {
             const timeLabel = formatTime(message.createdAt);
             const prevLabel =
@@ -601,6 +613,13 @@ function ChatPanel({
                             <div className="text-xs text-muted-foreground">
                               Náhled není dostupný.
                             </div>
+                          ) : previewData?.previewUrl ? (
+                            <img
+                              src={previewData.previewUrl}
+                              alt="Náhled commitu"
+                              className="max-w-[200px] max-h-[200px] rounded-lg bg-white"
+                              style={{ imageRendering: "pixelated" }}
+                            />
                           ) : !previewData?.changes?.length ? (
                             <div className="text-xs text-muted-foreground">
                               Načítám náhled…

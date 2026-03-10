@@ -15,6 +15,8 @@ export default defineSchema({
     chatWindowStart: v.optional(v.number()),
     chatWindowCount: v.optional(v.number()),
     lastChatMessageText: v.optional(v.string()),
+    totalPixelCount: v.optional(v.number()),
+    totalSpent: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_token", ["token"])
@@ -63,6 +65,7 @@ export default defineSchema({
         previousColor: v.optional(v.string()),
       })
     ),
+    previewStorageId: v.optional(v.id("_storage")),
   })
     .index("by_canvas", ["canvasId"])
     .index("by_canvas_time", ["canvasId", "timestamp"])
@@ -79,7 +82,54 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_canvas_xy", ["canvasId", "x", "y"])
-    .index("by_canvas_yx", ["canvasId", "y", "x"]),
+    .index("by_canvas_yx", ["canvasId", "y", "x"])
+    .index("by_canvas_updatedAt", ["canvasId", "updatedAt"]),
+
+  canvasSnapshots: defineTable({
+    canvasId: v.id("canvases"),
+    storageId: v.id("_storage"),
+    priceMapStorageId: v.optional(v.id("_storage")),
+    pixelCount: v.number(),
+    createdAt: v.number(),
+    priceMapUpdatedAt: v.optional(v.number()),
+  })
+    .index("by_canvas", ["canvasId"]),
+
+  priceMapChunks: defineTable({
+    canvasId: v.id("canvases"),
+    chunkIndex: v.number(),
+    data: v.bytes(),
+    rowStart: v.number(),
+    rowEnd: v.number(),
+    canvasWidth: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_canvas_chunk", ["canvasId", "chunkIndex"]),
+
+  pendingCommits: defineTable({
+    userId: v.id("users"),
+    canvasId: v.id("canvases"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("validated"),
+      v.literal("failed"),
+    ),
+    totalCost: v.number(),
+    priceHash: v.string(),
+    atRiskCount: v.number(),
+    pixelOpsStorageId: v.id("_storage"),
+    pixelCount: v.number(),
+    basePrice: v.number(),
+    isAdmin: v.boolean(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    previewStorageId: v.optional(v.id("_storage")),
+    actorName: v.string(),
+    actorEmail: v.optional(v.string()),
+    transactionId: v.optional(v.id("transactions")),
+  })
+    .index("by_user", ["userId"])
+    .index("by_status_expiresAt", ["status", "expiresAt"]),
 
   chatMessages: defineTable({
     userId: v.id("users"),

@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Canvas } from "./Canvas";
 import { CanvasPageLayout } from "./CanvasPageLayout";
@@ -22,11 +22,15 @@ import { PixelPreview } from "./PixelPreview";
 import { Tutorial } from "./Tutorial";
 import { nextPixelPrice } from "../../convex/pricing";
 import { Button } from "@/components/ui/button";
-import { Move } from "lucide-react";
+import { Coins, Loader2, Move } from "lucide-react";
 import { useStampTool } from "./useStampTool";
 import { StampToolControls } from "./StampToolControls";
+import { useSnapshotLoader } from "./useSnapshotLoader";
+import { usePriceMap } from "./usePriceMap";
 
 const STARTOVAC_URL = "https://www.startovac.cz/projekty/anarchoagorismus/";
+const EMPTY_PIXEL_MAP = new Map<string, string>();
+const EMPTY_PENDING: Record<string, string> = {};
 
 type PendingChange = {
   key?: string;
@@ -224,7 +228,6 @@ export default function CanvasPage() {
   const [popupMode, setPopupMode] = useState<"anonymous" | "buy-credits">(
     "anonymous",
   );
-  const stampTool = useStampTool();
   const [selectedColor, setSelectedColorRaw] = useState("#000000");
   const [btcPayPurchaseOpen, setBtcPayPurchaseOpen] = useState(false);
   const [tutorialStep, setTutorialStep] = useState<1 | 2 | 3 | null>(null);
@@ -253,8 +256,7 @@ export default function CanvasPage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [overwriteBlockedOpen, setOverwriteBlockedOpen] = useState(false);
   const [minPaymentBlockedOpen, setMinPaymentBlockedOpen] = useState(false);
-  const [initialCost, setInitialCost] = useState(0);
-  const [initialPendingCount, setInitialPendingCount] = useState(0);
+  const [commitWarning, setCommitWarning] = useState<string | null>(null);
   const [moveDraft, setMoveDraft] = useState<{
     pixels: { x: number; y: number; color: string }[];
   } | null>(null);
@@ -285,45 +287,81 @@ export default function CanvasPage() {
   const isAdmin = !!user?.isAdmin;
   const isCanvasLocked = !!activeCanvas?.locked && !isAdmin;
 
+  const commitPixels = useMutation(api.pixels.commit);
+  const generateUploadUrl = useMutation(api.pixels.generateUploadUrl);
+  const commitFromBlob = useAction(api.commitLarge.commitFromBlob);
+  const preUploadedBlobRef = useRef<string | null>(null);
+
+  // Smart loading: load snapshot first, then delta/full paginated data in background
+  const { snapshotPixels, snapshotBitmap, snapshotReady, snapshotCreatedAt } =
+    useSnapshotLoader(canvasId);
+
+  // PNG-first: display comes entirely from snapshot PNG + optimistic merge.
+  // No per-pixel delta/paginated queries — eliminates reactive storms and timeouts.
+  // Other users see changes when snapshot regenerates (~3s after commit).
+  // Fallback: paginated loading for canvases that have no snapshot yet.
+  const hasSnapshot = snapshotReady && snapshotCreatedAt !== null;
+
   const {
-    results: paginatedPixels,
-    status: pixelsStatus,
-    loadMore,
+    results: fullPixels,
+    status: fullStatus,
+    loadMore: fullLoadMore,
   } = usePaginatedQuery(
     api.pixels.getByCanvasPaginated,
-    canvasId ? { canvasId } : "skip",
+    canvasId && !hasSnapshot ? { canvasId } : "skip",
     { initialNumItems: 1000 },
-  );
-  const pixels = useMemo(
-    () => paginatedPixels ?? [],
-    [paginatedPixels],
   );
 
   useEffect(() => {
-    if (pixelsStatus === "CanLoadMore") {
-      loadMore(1000);
+    if (!hasSnapshot && fullStatus === "CanLoadMore") {
+      fullLoadMore(1000);
     }
-  }, [pixelsStatus, loadMore]);
-
-  const commitPixels = useMutation(api.pixels.commit);
+  }, [hasSnapshot, fullStatus, fullLoadMore]);
 
   const colors = useMemo(
     () => activeCanvas?.colors ?? ["#000000"],
     [activeCanvas?.colors],
   );
   const enforceColors = activeCanvas?.enforceColors ?? false;
+  const stampTool = useStampTool({ enforceColors, palette: colors });
   const gridWidth = activeCanvas?.width ?? 20;
   const gridHeight = activeCanvas?.height ?? 20;
   const pixelPrice = activeCanvas?.pixelPrice ?? 1;
+
+  // Reactive price map from DB chunks (replaces gzipped file storage + 15s cron)
+  const priceMap = usePriceMap(canvasId, gridWidth, gridHeight);
   const totalCanvases = canvases?.length ?? 0;
 
   useEffect(() => {
     if (!canvasId || canvasId === canvasIdRef.current) {
       return;
     }
+    // Save current canvas serverPixelMap to cache before switching
+    const prevId = canvasIdRef.current;
+    if (prevId && serverPixelMapRef.current.size > 0) {
+      serverPixelCacheRef.current.set(prevId, {
+        map: new Map(serverPixelMapRef.current),
+        processed: serverPixelProcessedRef.current,
+      });
+      // Evict oldest if cache is too large (keep max 6 canvases)
+      if (serverPixelCacheRef.current.size > 6) {
+        const firstKey = serverPixelCacheRef.current.keys().next().value;
+        if (firstKey !== undefined) serverPixelCacheRef.current.delete(firstKey);
+      }
+    }
     canvasIdRef.current = canvasId;
     skipSaveRef.current = true;
     setMoveDraft(null);
+    // Restore serverPixelMap from cache or start fresh
+    const cached = serverPixelCacheRef.current.get(canvasId);
+    if (cached) {
+      serverPixelMapRef.current = new Map(cached.map);
+      serverPixelProcessedRef.current = cached.processed;
+    } else {
+      serverPixelMapRef.current = new Map();
+      serverPixelProcessedRef.current = 0;
+    }
+    setServerPixelVer((v) => v + 1);
     try {
       const raw = localStorage.getItem(`pixagora-pending-${canvasId}`);
       if (raw) {
@@ -495,65 +533,132 @@ export default function CanvasPage() {
     setClearConfirmOpen(false);
   };
 
-  const serverPixelMap = useMemo(() => {
-    const map = new Map<string, { color: string; price: number; userId: string }>();
-    paginatedPixels.forEach((pixel) => {
-      map.set(`${pixel.x},${pixel.y}`, {
-        color: pixel.color,
-        price: pixel.price,
-        userId: pixel.userId,
-      });
-    });
-    return map;
-  }, [paginatedPixels]);
+  // serverPixelMap: optimistic merge data + fallback paginated data (no-snapshot path)
+  // Cached per canvas so switching back is instant.
+  const serverPixelMapRef = useRef(new Map<string, { color: string; price: number; userId: string }>());
+  const serverPixelProcessedRef = useRef(0);
+  const [serverPixelVer, setServerPixelVer] = useState(0);
+  const serverPixelCacheRef = useRef(new Map<string, {
+    map: Map<string, { color: string; price: number; userId: string }>;
+    processed: number;
+  }>());
 
-  const combinedPixelMap = useMemo(() => {
-    const pendingForRender = moveDraft ? {} : pendingState.pending;
+  // When a new snapshot is decoded, clear serverPixelMap (snapshot has all the data)
+  const prevSnapshotTimeRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (snapshotCreatedAt !== null && snapshotCreatedAt !== prevSnapshotTimeRef.current) {
+      prevSnapshotTimeRef.current = snapshotCreatedAt;
+      serverPixelMapRef.current.clear();
+      serverPixelProcessedRef.current = 0;
+      setServerPixelVer((v) => v + 1);
+      // Also clear cached entry for this canvas — snapshot supersedes it
+      if (canvasId) {
+        serverPixelCacheRef.current.delete(canvasId);
+      }
+    }
+  }, [snapshotCreatedAt, canvasId]);
+
+  // Fallback: incremental processing of paginated results (only for canvases without snapshot)
+  useEffect(() => {
+    if (hasSnapshot) return;
+    const map = serverPixelMapRef.current;
+    const prev = serverPixelProcessedRef.current;
+
+    if (fullPixels.length < prev) {
+      map.clear();
+      serverPixelProcessedRef.current = 0;
+    }
+
+    const start = serverPixelProcessedRef.current;
+    if (fullPixels.length > start) {
+      for (let i = start; i < fullPixels.length; i++) {
+        const pixel = fullPixels[i];
+        map.set(`${pixel.x},${pixel.y}`, {
+          color: pixel.color,
+          price: pixel.price,
+          userId: pixel.userId,
+        });
+      }
+      serverPixelProcessedRef.current = fullPixels.length;
+      setServerPixelVer((v) => v + 1);
+    } else if (fullPixels.length === prev && prev > 0) {
+      map.clear();
+      for (const pixel of fullPixels) {
+        map.set(`${pixel.x},${pixel.y}`, {
+          color: pixel.color,
+          price: pixel.price,
+          userId: pixel.userId,
+        });
+      }
+      serverPixelProcessedRef.current = fullPixels.length;
+      setServerPixelVer((v) => v + 1);
+    }
+  }, [fullPixels, hasSnapshot]);
+
+  const serverPixelMap = serverPixelMapRef.current;
+
+  // Overlay pixels: just the small serverPixelMap as a color-only Map
+  const overlayPixels = useMemo(() => {
     const map = new Map<string, string>();
     serverPixelMap.forEach((val, key) => {
       map.set(key, val.color);
     });
-    Object.entries(pendingForRender).forEach(([key, color]) => {
-      map.set(key, color);
-    });
     return map;
-  }, [serverPixelMap, moveDraft, pendingState.pending]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverPixelVer]);
 
-  const activeCanvasPixels = useMemo(() => {
-    const result: { x: number; y: number; color: string }[] = [];
-    combinedPixelMap.forEach((color, key) => {
-      const [xRaw, yRaw] = key.split(",");
-      const x = Number(xRaw);
-      const y = Number(yRaw);
-      if (Number.isFinite(x) && Number.isFinite(y)) {
-        result.push({ x, y, color });
-      }
-    });
-    return result;
-  }, [combinedPixelMap]);
+  // Base pixel map: layered lookup (snapshot + overlay) — avoids copying 200K entries
+  // Only used for logic (color checks in handlers), NOT for Canvas rendering (which uses bitmap)
+  const basePixelMap = useMemo(() => {
+    // When overlay is empty, snapshot IS the base — zero-copy
+    if (snapshotPixels && overlayPixels.size === 0) {
+      return snapshotPixels;
+    }
+    // When overlay exists, create a thin proxy Map that layers overlay on snapshot
+    if (snapshotPixels) {
+      const layered = new Map<string, string>();
+      // Only copy snapshot keys that aren't overridden (still expensive but less common)
+      snapshotPixels.forEach((color, key) => {
+        if (!overlayPixels.has(key)) layered.set(key, color);
+      });
+      overlayPixels.forEach((color, key) => layered.set(key, color));
+      return layered;
+    }
+    // No snapshot: just overlay (fallback/paginated path)
+    return overlayPixels;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshotPixels, overlayPixels]);
+
+  // Pending pixels for rendering (empty when moveDraft is active)
+  const pendingForRender = useMemo(
+    () => (moveDraft ? EMPTY_PENDING : pendingState.pending),
+    [moveDraft, pendingState.pending],
+  );
 
   const effectivePending = useMemo(() => {
     const result: Record<string, string> = {};
     for (const [key, color] of Object.entries(pendingState.pending)) {
-      const serverColor = (
-        serverPixelMap.get(key)?.color ?? "#ffffff"
-      ).toLowerCase();
-      if (serverColor !== color.toLowerCase()) {
+      const existingColor = (basePixelMap.get(key) ?? "#ffffff").toLowerCase();
+      if (existingColor !== color.toLowerCase()) {
         result[key] = color;
       }
     }
     return result;
-  }, [pendingState.pending, serverPixelMap]);
+  }, [pendingState.pending, basePixelMap]);
 
   const hasForeignOverwrite = useMemo(() => {
     if (!isAuthenticated || !user?._id) {
       return false;
     }
+    // Without per-pixel userId, assume overwrite if pixel exists in snapshot
+    // (not from our optimistic merge). Server handles real permission check.
     return Object.keys(effectivePending).some((key) => {
-      const existing = serverPixelMap.get(key);
-      return existing && existing.userId !== user._id;
+      const inOptimistic = serverPixelMap.get(key);
+      if (inOptimistic) return inOptimistic.userId !== user._id;
+      return snapshotPixels?.has(key) ?? false;
     });
-  }, [effectivePending, isAuthenticated, serverPixelMap, user?._id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectivePending, isAuthenticated, serverPixelVer, snapshotPixels, user?._id]);
 
   useEffect(() => {
     setPendingPriceBaseline((prev) => {
@@ -561,7 +666,9 @@ export default function CanvasPage() {
       const next = { ...prev };
       for (const key of Object.keys(effectivePending)) {
         if (next[key] === undefined) {
-          next[key] = serverPixelMap.get(key)?.price ?? null;
+          const ex = serverPixelMap.get(key);
+          // Use known price from optimistic data, or basePrice if pixel exists in snapshot
+          next[key] = ex ? ex.price : basePixelMap.has(key) ? pixelPrice : null;
           changed = true;
         }
       }
@@ -573,7 +680,7 @@ export default function CanvasPage() {
       }
       return changed ? next : prev;
     });
-  }, [effectivePending, serverPixelMap]);
+  }, [effectivePending, basePixelMap, pixelPrice, serverPixelMap]);
 
   const pendingCount = Object.keys(effectivePending).length;
   pendingCountRef.current = pendingCount;
@@ -587,11 +694,27 @@ export default function CanvasPage() {
   const totalCost = useMemo(() => {
     let cost = 0;
     for (const key of Object.keys(effectivePending)) {
-      const existing = serverPixelMap.get(key);
-      cost += nextPixelPrice(pixelPrice, existing?.price);
+      const optimistic = serverPixelMap.get(key);
+      if (optimistic) {
+        cost += nextPixelPrice(pixelPrice, optimistic.price);
+      } else {
+        // Vectorized lookup: priceMap[y * width + x] — O(1), no string keys
+        const ci = key.indexOf(",");
+        const px = +key.substring(0, ci);
+        const py = +key.substring(ci + 1);
+        const mapPrice = priceMap ? priceMap[py * gridWidth + px] : 0;
+        if (mapPrice > 0) {
+          cost += nextPixelPrice(pixelPrice, mapPrice);
+        } else if (basePixelMap.has(key)) {
+          cost += nextPixelPrice(pixelPrice, pixelPrice);
+        } else {
+          cost += pixelPrice;
+        }
+      }
     }
     return cost;
-  }, [effectivePending, serverPixelMap, pixelPrice]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectivePending, serverPixelVer, pixelPrice, basePixelMap, priceMap, gridWidth]);
 
   const priceIncreaseDetected = useMemo(() => {
     return Object.keys(effectivePending).some((key) => {
@@ -600,13 +723,22 @@ export default function CanvasPage() {
         return false;
       }
       const baselineCost = nextPixelPrice(pixelPrice, baselinePrice ?? undefined);
-      const currentCost = nextPixelPrice(
-        pixelPrice,
-        serverPixelMap.get(key)?.price,
-      );
+      const optimistic = serverPixelMap.get(key);
+      let currentPrice: number | undefined;
+      if (optimistic) {
+        currentPrice = optimistic.price;
+      } else {
+        const ci = key.indexOf(",");
+        const px = +key.substring(0, ci);
+        const py = +key.substring(ci + 1);
+        const mapPrice = priceMap ? priceMap[py * gridWidth + px] : 0;
+        currentPrice = mapPrice > 0 ? mapPrice : (basePixelMap.has(key) ? pixelPrice : undefined);
+      }
+      const currentCost = nextPixelPrice(pixelPrice, currentPrice);
       return currentCost > baselineCost;
     });
-  }, [effectivePending, pendingPriceBaseline, pixelPrice, serverPixelMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectivePending, pendingPriceBaseline, pixelPrice, serverPixelVer, basePixelMap, priceMap, gridWidth]);
 
   useEffect(() => {
     if (!priceIncreaseDetected) {
@@ -621,8 +753,8 @@ export default function CanvasPage() {
     });
   }, [effectivePending]);
 
-  const priceChanged = confirmOpen && totalCost !== initialCost;
-  const pixelsStolen = confirmOpen && pendingCount < initialPendingCount;
+  const priceChanged = false;
+  const pixelsStolen = false;
 
   const highlightedPixelSet = useMemo(
     () => (confirmOpen ? new Set(Object.keys(effectivePending)) : undefined),
@@ -647,6 +779,8 @@ export default function CanvasPage() {
     }
   };
 
+  const LARGE_THRESHOLD = 1000;
+
   const handleOpenConfirm = () => {
     if (!isAuthenticated) {
       handleOpenAnonymousPopup();
@@ -667,21 +801,56 @@ export default function CanvasPage() {
       localStorage.setItem("pixagora-tutorial-done", "1");
     }
     setPopupOpen(false);
-    setInitialCost(totalCost);
-    setInitialPendingCount(pendingCount);
+    setCommitWarning(null);
+    preUploadedBlobRef.current = null;
     setConfirmOpen(true);
+
+    // Pre-upload blob for large commits so "Potvrdit" is instant.
+    // Cost displayed in dialog = totalCost from useMemo (uses priceMap chunks + serverPixelMap).
+    // Server charges actual cost at commit time — no PRICE_CHANGED errors.
+    const payload = Object.entries(effectivePending).map(([key, color]) => {
+      const [x, y] = key.split(",").map(Number);
+      return { x, y, color };
+    });
+    if (payload.length > LARGE_THRESHOLD && canvasId) {
+      (async () => {
+        try {
+          const buffer = new ArrayBuffer(payload.length * 7);
+          const view = new DataView(buffer);
+          for (let i = 0; i < payload.length; i++) {
+            const px = payload[i];
+            const offset = i * 7;
+            view.setUint16(offset, px.x, true);
+            view.setUint16(offset + 2, px.y, true);
+            const hex = px.color.replace("#", "");
+            view.setUint8(offset + 4, parseInt(hex.substring(0, 2), 16));
+            view.setUint8(offset + 5, parseInt(hex.substring(2, 4), 16));
+            view.setUint8(offset + 6, parseInt(hex.substring(4, 6), 16));
+          }
+
+          const uploadUrl = await generateUploadUrl();
+          const uploadResponse = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: new Blob([buffer]),
+          });
+          if (!uploadResponse.ok) throw new Error("Upload failed");
+          const { storageId } = await uploadResponse.json();
+          preUploadedBlobRef.current = storageId;
+        } catch (err) {
+          console.warn("Pre-upload failed:", err);
+        }
+      })();
+    }
   };
 
   const handleCancelConfirm = () => {
+    preUploadedBlobRef.current = null;
     setConfirmOpen(false);
   };
 
-  const handleAcceptChanges = () => {
-    setInitialCost(totalCost);
-    setInitialPendingCount(pendingCount);
-  };
-
   const handleConfirm = async () => {
+    setCommitWarning(null);
     const ok = await handleCommit();
     if (ok) {
       setConfirmOpen(false);
@@ -725,16 +894,16 @@ export default function CanvasPage() {
           continue;
         }
         const key = `${targetX},${targetY}`;
-        const serverColor = serverPixelMap.get(key)?.color ?? "#ffffff";
+        const baseColor = basePixelMap.get(key) ?? "#ffffff";
         const visibleColor = (
-          pendingState.pending[key] ?? serverColor
+          pendingState.pending[key] ?? baseColor
         ).toLowerCase();
         const nextColor = px.color.toLowerCase();
         if (nextColor === visibleColor) {
           continue;
         }
         const nextPending =
-          nextColor === serverColor.toLowerCase() ? undefined : px.color;
+          nextColor === baseColor.toLowerCase() ? undefined : px.color;
         changes.push({ key, nextPending });
       }
       if (changes.length > 0) {
@@ -743,18 +912,16 @@ export default function CanvasPage() {
       return;
     }
     const key = `${x},${y}`;
-    const serverColor = serverPixelMap.get(key)?.color;
+    const baseColor = basePixelMap.get(key) ?? "#ffffff";
     const visibleColor = (
-      pendingState.pending[key] ??
-      serverColor ??
-      "#ffffff"
+      pendingState.pending[key] ?? baseColor
     ).toLowerCase();
 
     if (selectedColor.toLowerCase() === visibleColor) {
       dispatch({ type: "apply", key, nextPending: undefined });
     } else {
       const nextPending =
-        selectedColor.toLowerCase() === (serverColor ?? "#ffffff").toLowerCase()
+        selectedColor.toLowerCase() === baseColor.toLowerCase()
           ? undefined
           : selectedColor;
       dispatch({ type: "apply", key, nextPending });
@@ -766,18 +933,16 @@ export default function CanvasPage() {
       return;
     }
     const key = `${x},${y}`;
-    const serverColor = serverPixelMap.get(key)?.color;
+    const baseColor = basePixelMap.get(key) ?? "#ffffff";
     const visibleColor = (
-      pendingState.pending[key] ??
-      serverColor ??
-      "#ffffff"
+      pendingState.pending[key] ?? baseColor
     ).toLowerCase();
 
     if (selectedColor.toLowerCase() === visibleColor) {
       return;
     }
     const nextPending =
-      selectedColor.toLowerCase() === (serverColor ?? "#ffffff").toLowerCase()
+      selectedColor.toLowerCase() === baseColor.toLowerCase()
         ? undefined
         : selectedColor;
     dispatch({ type: "apply", key, nextPending });
@@ -812,6 +977,24 @@ export default function CanvasPage() {
     setMoveDraft({ pixels: relative });
   };
 
+  // Optimistically merge committed pixels into serverPixelMap so they
+  // appear immediately without waiting for paginated query to catch up.
+  const optimisticMergeCommitted = useCallback(
+    (pending: Record<string, string>) => {
+      const map = serverPixelMapRef.current;
+      for (const key in pending) {
+        const existing = map.get(key);
+        map.set(key, {
+          color: pending[key],
+          price: existing?.price ?? pixelPrice,
+          userId: existing?.userId ?? "",
+        });
+      }
+      setServerPixelVer((v) => v + 1);
+    },
+    [pixelPrice],
+  );
+
   const handleCommit = async (): Promise<boolean> => {
     if (
       !confirmOpen ||
@@ -823,7 +1006,6 @@ export default function CanvasPage() {
       return false;
     }
     setIsCommitting(true);
-    let committedAny = false;
     try {
       const payload = Object.entries(effectivePending).map(([key, color]) => {
         const [x, y] = key.split(",").map(Number);
@@ -832,24 +1014,42 @@ export default function CanvasPage() {
       if (payload.length === 0) {
         return false;
       }
-      const BATCH_SIZE = 1000;
-      const batches: typeof payload[] = [];
-      for (let i = 0; i < payload.length; i += BATCH_SIZE) {
-        batches.push(payload.slice(i, i + BATCH_SIZE));
-      }
 
-      for (let i = 0; i < batches.length; i++) {
-        const result = await commitPixels({
-          token,
-          canvasId,
-          pixels: batches[i],
-          expectedCost: batches.length === 1 ? totalCost : undefined,
-        });
-        if (result && "error" in result) {
-          if (committedAny) {
-            dispatch({ type: "reset" });
-            return true;
+      // Capture pending before reset for optimistic merge
+      const committedPending = { ...effectivePending };
+
+      // Large commits: upload blob → commitFromBlob (single action, no two-phase)
+      // Cost in dialog = FE estimate from price matrix. Server charges actual cost.
+      if (payload.length > LARGE_THRESHOLD) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let storageId: any;
+        if (preUploadedBlobRef.current) {
+          storageId = preUploadedBlobRef.current;
+          preUploadedBlobRef.current = null;
+        } else {
+          const buffer = new ArrayBuffer(payload.length * 7);
+          const view = new DataView(buffer);
+          for (let i = 0; i < payload.length; i++) {
+            const px = payload[i];
+            const offset = i * 7;
+            view.setUint16(offset, px.x, true);
+            view.setUint16(offset + 2, px.y, true);
+            const hex = px.color.replace("#", "");
+            view.setUint8(offset + 4, parseInt(hex.substring(0, 2), 16));
+            view.setUint8(offset + 5, parseInt(hex.substring(2, 4), 16));
+            view.setUint8(offset + 6, parseInt(hex.substring(4, 6), 16));
           }
+          const uploadUrl = await generateUploadUrl();
+          const uploadResponse = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: new Blob([buffer]),
+          });
+          if (!uploadResponse.ok) throw new Error("Failed to upload pixel data");
+          ({ storageId } = await uploadResponse.json());
+        }
+        const result = await commitFromBlob({ token, canvasId, storageId });
+        if (result && "error" in result && result.error) {
           if (result.error === "NOT_ENOUGH_CREDITS") {
             setConfirmOpen(false);
             handleOpenBuyCredits();
@@ -861,23 +1061,45 @@ export default function CanvasPage() {
             setOverwriteBlockedOpen(true);
           } else if (result.error === "CANVAS_LOCKED") {
             setConfirmOpen(false);
-          } else if (result.error === "PRICE_CHANGED") {
-            setInitialCost(totalCost);
-            setInitialPendingCount(pendingCount);
-            return false;
           }
           return false;
         }
-        committedAny = true;
+        optimisticMergeCommitted(committedPending);
+        dispatch({ type: "reset" });
+        return true;
       }
+
+      // Small commit: single mutation with expectedCost check
+      const result = await commitPixels({
+        token,
+        canvasId,
+        pixels: payload,
+        expectedCost: totalCost,
+      });
+      if (result && "error" in result) {
+        if (result.error === "NOT_ENOUGH_CREDITS") {
+          setConfirmOpen(false);
+          handleOpenBuyCredits();
+        } else if (result.error === "MIN_PAYMENT_REQUIRED") {
+          setConfirmOpen(false);
+          setMinPaymentBlockedOpen(true);
+        } else if (result.error === "OVERWRITE_LOCKED") {
+          setConfirmOpen(false);
+          setOverwriteBlockedOpen(true);
+        } else if (result.error === "CANVAS_LOCKED") {
+          setConfirmOpen(false);
+        } else if (result.error === "PRICE_CHANGED") {
+          setCommitWarning("Ceny se změnily. Zkontroluj novou cenu a potvrď znovu.");
+          return false;
+        }
+        return false;
+      }
+      optimisticMergeCommitted(committedPending);
       dispatch({ type: "reset" });
       return true;
     } catch (error) {
-      if (committedAny) {
-        dispatch({ type: "reset" });
-      }
       alert(error instanceof Error ? error.message : "Commit failed");
-      return committedAny;
+      return false;
     } finally {
       setIsCommitting(false);
     }
@@ -946,8 +1168,17 @@ export default function CanvasPage() {
                 ) : (
                   <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
                     <Canvas
-                      pixels={
-                        index === activeReelIndex ? activeCanvasPixels : []
+                      basePixelMap={
+                        index === activeReelIndex ? basePixelMap : EMPTY_PIXEL_MAP
+                      }
+                      snapshotBitmap={
+                        index === activeReelIndex ? snapshotBitmap : null
+                      }
+                      overlayPixels={
+                        index === activeReelIndex ? overlayPixels : undefined
+                      }
+                      pendingPixels={
+                        index === activeReelIndex ? pendingForRender : EMPTY_PENDING
                       }
                       width={canvases?.[index]?.width ?? gridWidth}
                       height={canvases?.[index]?.height ?? gridHeight}
@@ -992,7 +1223,12 @@ export default function CanvasPage() {
                         }
                       }}
                     />
-                    {index === activeReelIndex && pixelsStatus !== "Exhausted" && (
+                    {index === activeReelIndex && !snapshotReady && (
+                      <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
+                        Načítám snapshot…
+                      </div>
+                    )}
+                    {index === activeReelIndex && snapshotReady && !hasSnapshot && fullStatus !== "Exhausted" && (
                       <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
                         Načítám pixely…
                       </div>
@@ -1196,7 +1432,10 @@ export default function CanvasPage() {
         </div>
       )}
 
-      {confirmOpen && (
+      {confirmOpen && (() => {
+        const balance = user?.credits ?? 0;
+        const canAfford = balance >= totalCost;
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div
             role="dialog"
@@ -1211,58 +1450,75 @@ export default function CanvasPage() {
             <div className="space-y-1">
               <h2 className="text-xl font-semibold">Potvrdit nákup</h2>
               <p className="text-sm text-muted-foreground">
-                Chystáš se zakoupit{" "}
-                <strong className="text-foreground">{pendingCount}</strong>{" "}
+                {pendingCount}{" "}
                 {pendingCount === 1
                   ? "pixel"
                   : pendingCount < 5
                     ? "pixely"
-                    : "pixelů"}{" "}
-                za <strong className="text-foreground">{totalCost}</strong>{" "}
-                kreditů.
+                    : "pixelů"}
               </p>
             </div>
-            {priceChanged && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
-                <p className="font-medium">Cena se změnila!</p>
-                <p className="mt-0.5 text-xs">
-                  Někdo jiný mezitím zakoupil pixel, který chceš přepsat.
-                  Přepsání stojí víc. Celková cena se změnila z{" "}
-                  <strong>{initialCost}</strong> na <strong>{totalCost}</strong>{" "}
-                  kreditů.
-                </p>
+
+            <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Odhad ceny</span>
+                <span className="inline-flex items-center gap-1 font-semibold">
+                  <Coins className="h-3.5 w-3.5" />
+                  ~{totalCost}
+                </span>
               </div>
-            )}
-            {pixelsStolen && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
-                <p className="font-medium">Pixely se změnily!</p>
-                <p className="mt-0.5 text-xs">
-                  Někdo jiný mezitím změnil některé pixely, které jsi chtěl
-                  přepsat. Zkontroluj své změny na plátně.
-                </p>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Tvůj zůstatek</span>
+                <span className={`inline-flex items-center gap-1 font-semibold ${canAfford ? "text-foreground" : "text-red-500"}`}>
+                  <Coins className="h-3.5 w-3.5" />
+                  {balance}
+                </span>
               </div>
-            )}
-            <div className="flex items-center gap-2">
-              {priceChanged || pixelsStolen ? (
-                <Button onClick={handleAcceptChanges} className="flex-1">
-                  Akceptovat změnu
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleConfirm}
-                  disabled={isCommitting}
-                  className="flex-1"
-                >
-                  {isCommitting ? "Odesílám…" : "Potvrdit"}
-                </Button>
+              {canAfford && (
+                <div className="flex items-center justify-between border-t pt-1.5 text-xs text-muted-foreground">
+                  <span>Po nákupu cca</span>
+                  <span className="inline-flex items-center gap-1">
+                    <Coins className="h-3 w-3" />
+                    ~{balance - totalCost}
+                  </span>
+                </div>
               )}
+            </div>
+
+            {!canAfford && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+                <p className="font-medium">Nedostatek kreditů</p>
+                <p className="mt-0.5 text-xs">
+                  Chybí ti cca <strong>{totalCost - balance}</strong> kreditů.
+                </p>
+              </div>
+            )}
+
+            {commitWarning && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                {commitWarning}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleConfirm}
+                disabled={isCommitting || !canAfford}
+                className="flex-1 gap-2"
+              >
+                {isCommitting && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                {isCommitting ? "Odesílám…" : "Potvrdit"}
+              </Button>
               <Button variant="secondary" onClick={handleCancelConfirm}>
                 Zrušit
               </Button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {clearConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

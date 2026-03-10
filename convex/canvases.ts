@@ -1,7 +1,7 @@
 import { query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
-const MAX_CANVAS_DIMENSION = 1000;
+const MAX_CANVAS_DIMENSION = 2000;
 
 export const getAll = query({
   args: {},

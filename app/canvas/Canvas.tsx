@@ -11,21 +11,20 @@ import {
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { PixelPreview } from "./PixelPreview";
 
-type Pixel = {
-  x: number;
-  y: number;
-  color: string;
-};
-
 type CanvasProps = {
-  pixels: Pixel[];
+  basePixelMap: Map<string, string>;
+  /** Raw snapshot ImageBitmap for fast rendering — avoids re-parsing 200K hex strings */
+  snapshotBitmap?: ImageBitmap | null;
+  /** Small overlay of optimistic/server pixels on top of snapshot */
+  overlayPixels?: Map<string, string>;
+  pendingPixels: Record<string, string>;
   width: number;
   height: number;
   selectedColor: string;
   onPixelClick: (x: number, y: number) => void;
   onEdgeSwipe?: (direction: "next" | "prev") => void;
   highlightedPixels?: Set<string>;
-  movePreviewPixels?: Pixel[] | null;
+  movePreviewPixels?: { x: number; y: number; color: string }[] | null;
   movePreviewActive?: boolean;
   isFreeModePainting?: boolean;
   onFreePaint?: (x: number, y: number) => void;
@@ -35,9 +34,98 @@ type CanvasProps = {
   onWheelStampResize?: (delta: number) => void;
 };
 
+// ---------------------------------------------------------------------------
+// Pixel buffer helpers
+// ---------------------------------------------------------------------------
+function buildPixelBuffer(
+  pixelMap: Map<string, string>,
+  w: number,
+  h: number,
+  snapshotBitmap?: ImageBitmap | null,
+  overlayPixels?: Map<string, string>,
+): { offscreen: OffscreenCanvas; imageData: ImageData } {
+  const offscreen = new OffscreenCanvas(w, h);
+  const octx = offscreen.getContext("2d")!;
+
+  // Fast path: draw snapshot bitmap directly, then overlay small server pixel map
+  if (snapshotBitmap) {
+    octx.fillStyle = "#ffffff";
+    octx.fillRect(0, 0, w, h);
+    octx.drawImage(snapshotBitmap, 0, 0);
+    // Apply small overlay (optimistic merge data — typically 0-few thousand pixels)
+    if (overlayPixels && overlayPixels.size > 0) {
+      overlayPixels.forEach((color, key) => {
+        const ci = key.indexOf(",");
+        const x = +key.substring(0, ci);
+        const y = +key.substring(ci + 1);
+        if (x >= 0 && x < w && y >= 0 && y < h) {
+          octx.fillStyle = color;
+          octx.fillRect(x, y, 1, 1);
+        }
+      });
+    }
+    const imageData = octx.getImageData(0, 0, w, h);
+    return { offscreen, imageData };
+  }
+
+  // Slow path: build from Map (no snapshot available)
+  const imageData = octx.createImageData(w, h);
+  const data = imageData.data;
+  data.fill(255); // white background (RGBA 255,255,255,255)
+  pixelMap.forEach((color, key) => {
+    const ci = key.indexOf(",");
+    const x = +key.substring(0, ci);
+    const y = +key.substring(ci + 1);
+    if (x < 0 || x >= w || y < 0 || y >= h) return;
+    const hex = color.charAt(0) === "#" ? color.substring(1) : color;
+    const num = parseInt(hex, 16);
+    const idx = (y * w + x) * 4;
+    data[idx] = (num >> 16) & 255;
+    data[idx + 1] = (num >> 8) & 255;
+    data[idx + 2] = num & 255;
+  });
+  octx.putImageData(imageData, 0, 0);
+  return { offscreen, imageData };
+}
+
+function applyPendingToBuffer(
+  offscreen: OffscreenCanvas,
+  baseImageData: ImageData,
+  pending: Record<string, string>,
+  prevKeys: Set<string>,
+  w: number,
+  h: number,
+): Set<string> {
+  const octx = offscreen.getContext("2d")!;
+  // Restore pixels no longer pending
+  for (const key of prevKeys) {
+    if (key in pending) continue;
+    const ci = key.indexOf(",");
+    const x = +key.substring(0, ci);
+    const y = +key.substring(ci + 1);
+    if (x >= 0 && x < w && y >= 0 && y < h) {
+      octx.putImageData(baseImageData, 0, 0, x, y, 1, 1);
+    }
+  }
+  // Apply pending pixels
+  for (const key in pending) {
+    const ci = key.indexOf(",");
+    const x = +key.substring(0, ci);
+    const y = +key.substring(ci + 1);
+    if (x >= 0 && x < w && y >= 0 && y < h) {
+      octx.fillStyle = pending[key];
+      octx.fillRect(x, y, 1, 1);
+    }
+  }
+  return new Set(Object.keys(pending));
+}
+
+// ---------------------------------------------------------------------------
+// drawGrid — uses OffscreenCanvas buffer for O(1) main grid rendering
+// ---------------------------------------------------------------------------
 function drawGrid(
   ctx: CanvasRenderingContext2D,
-  pixelMap: Map<string, string>,
+  pixelBuffer: OffscreenCanvas,
   gridW: number,
   gridH: number,
   cellSize: number,
@@ -63,45 +151,67 @@ function drawGrid(
 
   const step = cellSize + gap;
   const hoverFill = cellSize * scale >= 18;
+
+  // === Main grid: single drawImage instead of per-cell fillRect ===
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pixelBuffer, 0, 0, gridW * step, gridH * step);
+
+  // Viewport bounds for overlays
   const invScale = 1 / scale;
   const visLeft = -translate.x * invScale;
   const visTop = -translate.y * invScale;
   const visRight = visLeft + viewportW * invScale;
   const visBottom = visTop + viewportH * invScale;
-
   const startX = Math.max(0, Math.floor(visLeft / step));
   const endX = Math.min(gridW, Math.ceil(visRight / step));
   const startY = Math.max(0, Math.floor(visTop / step));
   const endY = Math.min(gridH, Math.ceil(visBottom / step));
 
-  for (let y = startY; y < endY; y++) {
-    for (let x = startX; x < endX; x++) {
-      const px = x * step;
-      const py = y * step;
-      const key = `${x},${y}`;
-      const color = pixelMap.get(key);
-      const isHovered = hovered?.x === x && hovered?.y === y;
-      const overlayColor = moveOverlay?.map.get(key);
+  // === Move overlay (iterate only overlay cells, not all visible) ===
+  if (moveOverlay && moveOverlay.map.size > 0) {
+    ctx.globalAlpha = moveOverlay.invalid ? 0.6 : 0.8;
+    moveOverlay.map.forEach((color, key) => {
+      const ci = key.indexOf(",");
+      const x = +key.substring(0, ci);
+      const y = +key.substring(ci + 1);
+      if (x < startX || x >= endX || y < startY || y >= endY) return;
+      ctx.fillStyle = moveOverlay.invalid ? "#ef4444" : color;
+      ctx.fillRect(x * step, y * step, cellSize, cellSize);
+    });
+  }
 
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = color ?? "#ffffff";
-      ctx.fillRect(px, py, cellSize, cellSize);
+  // === Stamp overlay (iterate only stamp cells) ===
+  if (stampOverlay && stampOverlay.map.size > 0) {
+    ctx.globalAlpha = stampOverlay.invalid ? 0.5 : 0.7;
+    stampOverlay.map.forEach((color, key) => {
+      if (moveOverlay?.map.has(key)) return;
+      const ci = key.indexOf(",");
+      const x = +key.substring(0, ci);
+      const y = +key.substring(ci + 1);
+      if (x < startX || x >= endX || y < startY || y >= endY) return;
+      ctx.fillStyle = stampOverlay.invalid ? "#ef4444" : color;
+      ctx.fillRect(x * step, y * step, cellSize, cellSize);
+    });
+  }
 
-      const stampColor = stampOverlay?.map.get(key);
-
-      if (overlayColor) {
-        ctx.globalAlpha = moveOverlay?.invalid ? 0.6 : 0.8;
-        ctx.fillStyle = moveOverlay?.invalid ? "#ef4444" : overlayColor;
-        ctx.fillRect(px, py, cellSize, cellSize);
-      } else if (stampColor) {
-        ctx.globalAlpha = stampOverlay?.invalid ? 0.5 : 0.7;
-        ctx.fillStyle = stampOverlay?.invalid ? "#ef4444" : stampColor;
-        ctx.fillRect(px, py, cellSize, cellSize);
-      } else if (isHovered && hoverFill) {
-        ctx.globalAlpha = color ? 1 : 0.7;
+  // === Hover highlight (single cell) ===
+  if (
+    hovered &&
+    hovered.x >= startX &&
+    hovered.x < endX &&
+    hovered.y >= startY &&
+    hovered.y < endY
+  ) {
+    const hoverKey = `${hovered.x},${hovered.y}`;
+    if (!moveOverlay?.map.has(hoverKey) && !stampOverlay?.map.has(hoverKey)) {
+      const px = hovered.x * step;
+      const py = hovered.y * step;
+      if (hoverFill) {
+        ctx.globalAlpha = 1;
         ctx.fillStyle = selectedColor;
         ctx.fillRect(px, py, cellSize, cellSize);
-      } else if (isHovered) {
+      } else {
+        ctx.globalAlpha = 1;
         const outlineWidth = Math.max(1 / scale, 0.75);
         const inset = outlineWidth / 2;
         ctx.lineWidth = outlineWidth;
@@ -124,55 +234,62 @@ function drawGrid(
     }
   }
 
-  ctx.globalAlpha = 0.08;
-  ctx.strokeStyle = "#000000";
-  ctx.lineWidth = 1 / scale;
-  ctx.beginPath();
-  const x0 = startX * step;
-  const x1 = endX * step;
-  const y0 = startY * step;
-  const y1 = endY * step;
-  for (let y = startY; y <= endY; y++) {
-    const py = y * step;
-    ctx.moveTo(x0, py);
-    ctx.lineTo(x1, py);
+  // === Grid lines ===
+  const screenCellSize = cellSize * scale;
+  if (screenCellSize >= 3 && screenCellSize <= 120) {
+    const gridAlpha =
+      screenCellSize < 6
+        ? 0.04
+        : screenCellSize > 80
+          ? 0.03
+          : 0.08;
+    ctx.globalAlpha = gridAlpha;
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1 / scale;
+    ctx.beginPath();
+    const x0 = startX * step;
+    const x1 = endX * step;
+    const y0 = startY * step;
+    const y1 = endY * step;
+    for (let y = startY; y <= endY; y++) {
+      const py = y * step;
+      ctx.moveTo(x0, py);
+      ctx.lineTo(x1, py);
+    }
+    for (let x = startX; x <= endX; x++) {
+      const px = x * step;
+      ctx.moveTo(px, y0);
+      ctx.lineTo(px, y1);
+    }
+    ctx.stroke();
   }
-  for (let x = startX; x <= endX; x++) {
-    const px = x * step;
-    ctx.moveTo(px, y0);
-    ctx.lineTo(px, y1);
-  }
-  ctx.stroke();
 
+  // === Highlighted pixels (iterate set, not all visible cells) ===
   if (highlightedPixels && highlightedPixels.size > 0) {
-    ctx.globalAlpha = 1;
     const borderWidth = Math.max(2 / scale, 1);
     const inset = borderWidth / 2;
     const pulseAlpha = 0.15 + 0.15 * Math.sin((Date.now() / 750) * Math.PI);
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const key = `${x},${y}`;
-        if (!highlightedPixels.has(key)) {
-          continue;
-        }
-        const px = x * step;
-        const py = y * step;
-        const bx = px + inset;
-        const by = py + inset;
-        const size = cellSize - borderWidth;
-        ctx.globalAlpha = 1;
-        ctx.lineWidth = borderWidth;
-        ctx.strokeStyle = "#000000";
-        ctx.strokeRect(bx, by, size, size);
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = borderWidth * 0.6;
-        ctx.strokeRect(bx, by, size, size);
-
-        ctx.globalAlpha = pulseAlpha;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(px, py, cellSize, cellSize);
-      }
-    }
+    highlightedPixels.forEach((key) => {
+      const ci = key.indexOf(",");
+      const x = +key.substring(0, ci);
+      const y = +key.substring(ci + 1);
+      if (x < startX || x >= endX || y < startY || y >= endY) return;
+      const px = x * step;
+      const py = y * step;
+      const bx = px + inset;
+      const by = py + inset;
+      const size = cellSize - borderWidth;
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = borderWidth;
+      ctx.strokeStyle = "#000000";
+      ctx.strokeRect(bx, by, size, size);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = borderWidth * 0.6;
+      ctx.strokeRect(bx, by, size, size);
+      ctx.globalAlpha = pulseAlpha;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(px, py, cellSize, cellSize);
+    });
   }
 
   ctx.globalAlpha = 1;
@@ -276,7 +393,10 @@ function lineCells(
 }
 
 export function Canvas({
-  pixels,
+  basePixelMap,
+  snapshotBitmap,
+  overlayPixels,
+  pendingPixels,
   width,
   height,
   selectedColor,
@@ -337,6 +457,20 @@ export function Canvas({
   const clickOriginRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef(0);
   const needsDrawRef = useRef(false);
+  const scheduleRedrawRef = useRef<() => void>(() => {});
+  // Pixel buffer: OffscreenCanvas for O(1) grid rendering
+  const pixelBufferRef = useRef<OffscreenCanvas | null>(null);
+  const baseImageDataRef = useRef<ImageData | null>(null);
+  const appliedPendingKeysRef = useRef<Set<string>>(new Set());
+  const pendingPixelsRef = useRef(pendingPixels);
+  pendingPixelsRef.current = pendingPixels;
+  // Stamp overlay cache: avoid rebuilding Map every frame
+  const stampOverlayCacheRef = useRef<{
+    hoverX: number;
+    hoverY: number;
+    stampPixels: typeof stampOverlayPixels;
+    result: { map: Map<string, string>; invalid: boolean } | null;
+  } | null>(null);
   const isPaintStrokeRef = useRef(false);
   const lastPaintedCellRef = useRef<{ x: number; y: number } | null>(null);
   const didPaintStrokeRef = useRef(false);
@@ -345,7 +479,7 @@ export function Canvas({
     Math.min(max, Math.max(min, value));
 
   const MIN_ZOOM = 0.8;
-  const MAX_ZOOM = 12;
+  const MAX_ZOOM = 60;
   const ZOOM_STEP = 1.5;
   /** Fraction of cell size (0..0.5) by which pointer must be inside the cell to count for free paint. Reduces accidental diagonal paints. */
   const FREE_PAINT_CELL_INSET = 0.1;
@@ -518,13 +652,31 @@ export function Canvas({
     [baseCellSize, height, width],
   );
 
-  const pixelMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const p of pixels) {
-      map.set(`${p.x},${p.y}`, p.color);
-    }
-    return map;
-  }, [pixels]);
+  // Build pixel buffer from basePixelMap (only rebuilds on data load, not per paint)
+  useEffect(() => {
+    const { offscreen, imageData } = buildPixelBuffer(
+      basePixelMap, width, height, snapshotBitmap, overlayPixels,
+    );
+    pixelBufferRef.current = offscreen;
+    baseImageDataRef.current = imageData;
+    // Apply current pending on top of fresh base
+    const pending = pendingPixelsRef.current;
+    appliedPendingKeysRef.current = applyPendingToBuffer(
+      offscreen, imageData, pending, new Set(), width, height,
+    );
+    scheduleRedrawRef.current();
+  }, [basePixelMap, width, height, snapshotBitmap, overlayPixels]);
+
+  // Incremental pending update (runs per paint — only touches changed pixels)
+  useEffect(() => {
+    const offscreen = pixelBufferRef.current;
+    const baseData = baseImageDataRef.current;
+    if (!offscreen || !baseData) return;
+    appliedPendingKeysRef.current = applyPendingToBuffer(
+      offscreen, baseData, pendingPixels, appliedPendingKeysRef.current, width, height,
+    );
+    scheduleRedrawRef.current();
+  }, [pendingPixels, width, height]);
 
   const clampTranslate = useCallback(
     (x: number, y: number, nextScale: number) => {
@@ -628,7 +780,7 @@ export function Canvas({
     (next: { x: number; y: number }) => {
       const clamped = clampTranslate(next.x, next.y, scaleRef.current);
       translateRef.current = clamped;
-      setTranslate(clamped);
+      scheduleRedrawRef.current();
     },
     [clampTranslate],
   );
@@ -638,6 +790,17 @@ export function Canvas({
     [],
   );
 
+  // Debounced React state sync — avoids 60/s re-renders during continuous zoom/pan
+  const syncTimeoutRef = useRef<number>(0);
+  const deferStateSync = useCallback(() => {
+    clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = window.setTimeout(() => {
+      setScale(scaleRef.current);
+      setTranslate(translateRef.current);
+    }, 150);
+  }, []);
+
+  // zoomTo: ref-only + scheduleRedraw (no React state update per event)
   const zoomTo = useCallback(
     (nextScale: number, focusX: number, focusY: number) => {
       const clampedScale = clampScale(nextScale);
@@ -648,12 +811,19 @@ export function Canvas({
       const nextX = focusX - worldX * clampedScale;
       const nextY = focusY - worldY * clampedScale;
       const clampedTranslate = clampTranslate(nextX, nextY, clampedScale);
-      setScale(clampedScale);
+      scaleRef.current = clampedScale;
       translateRef.current = clampedTranslate;
-      setTranslate(clampedTranslate);
+      scheduleRedrawRef.current();
     },
     [clampScale, clampTranslate],
   );
+
+  // Immediate state sync variant for one-off actions (buttons, double-tap)
+  const syncStateNow = useCallback(() => {
+    clearTimeout(syncTimeoutRef.current);
+    setScale(scaleRef.current);
+    setTranslate(translateRef.current);
+  }, []);
 
   const resetView = useCallback(() => {
     if (!containerSize.width || !containerSize.height) {
@@ -664,15 +834,17 @@ export function Canvas({
     const centerX = (containerSize.width - contentWidth) / 2;
     const centerY = (containerSize.height - contentHeight) / 2;
     const clamped = clampTranslate(centerX, centerY, 1);
-    setScale(1);
+    scaleRef.current = 1;
     translateRef.current = clamped;
-    setTranslate(clamped);
+    scheduleRedrawRef.current();
+    syncStateNow();
   }, [
     baseSize.height,
     baseSize.width,
     clampTranslate,
     containerSize.height,
     containerSize.width,
+    syncStateNow,
   ]);
 
   const zoomBy = useCallback(
@@ -689,8 +861,9 @@ export function Canvas({
           ? Math.min(MAX_ZOOM, scaleRef.current * ZOOM_STEP)
           : Math.max(MIN_ZOOM, scaleRef.current / ZOOM_STEP);
       zoomTo(nextScale, focusX, focusY);
+      syncStateNow();
     },
-    [zoomTo],
+    [zoomTo, syncStateNow],
   );
 
   const triggerEdgeSwipe = useCallback(
@@ -708,7 +881,6 @@ export function Canvas({
   );
 
   const drawRef = useRef({
-    pixelMap,
     width,
     height,
     baseCellSize,
@@ -721,7 +893,6 @@ export function Canvas({
 
   useEffect(() => {
     drawRef.current = {
-      pixelMap,
       width,
       height,
       baseCellSize,
@@ -732,7 +903,6 @@ export function Canvas({
       showHoverIndicator: !movePreviewActive && !stampOverlayPixels?.length,
     };
   }, [
-    pixelMap,
     width,
     height,
     baseCellSize,
@@ -751,7 +921,8 @@ export function Canvas({
     rafRef.current = requestAnimationFrame(() => {
       needsDrawRef.current = false;
       const canvas = canvasRef.current;
-      if (!canvas) {
+      const pixelBuffer = pixelBufferRef.current;
+      if (!canvas || !pixelBuffer) {
         return;
       }
       const ctx = canvas.getContext("2d");
@@ -760,27 +931,44 @@ export function Canvas({
       }
       const d = drawRef.current;
       const dpr = window.devicePixelRatio || 1;
-      let computedStampOverlay: { map: Map<string, string>; invalid: boolean } | null = null;
+      // Stamp overlay: cached, only rebuild when hover cell or stamp data changes
       const hoverCell = hoveredCellRef.current;
+      let computedStampOverlay: { map: Map<string, string>; invalid: boolean } | null = null;
       if (d.stampOverlayPixels?.length && hoverCell) {
-        let hasOOB = false;
-        const sMap = new Map<string, string>();
-        for (const px of d.stampOverlayPixels) {
-          const ax = hoverCell.x + px.x;
-          const ay = hoverCell.y + px.y;
-          if (ax < 0 || ay < 0 || ax >= d.width || ay >= d.height) {
-            hasOOB = true;
-            continue;
+        const cache = stampOverlayCacheRef.current;
+        if (
+          cache &&
+          cache.hoverX === hoverCell.x &&
+          cache.hoverY === hoverCell.y &&
+          cache.stampPixels === d.stampOverlayPixels
+        ) {
+          computedStampOverlay = cache.result;
+        } else {
+          let hasOOB = false;
+          const sMap = new Map<string, string>();
+          for (const px of d.stampOverlayPixels) {
+            const ax = hoverCell.x + px.x;
+            const ay = hoverCell.y + px.y;
+            if (ax < 0 || ay < 0 || ax >= d.width || ay >= d.height) {
+              hasOOB = true;
+              continue;
+            }
+            sMap.set(`${ax},${ay}`, px.color);
           }
-          sMap.set(`${ax},${ay}`, px.color);
+          computedStampOverlay = sMap.size > 0 ? { map: sMap, invalid: hasOOB } : null;
+          stampOverlayCacheRef.current = {
+            hoverX: hoverCell.x,
+            hoverY: hoverCell.y,
+            stampPixels: d.stampOverlayPixels,
+            result: computedStampOverlay,
+          };
         }
-        if (sMap.size > 0) {
-          computedStampOverlay = { map: sMap, invalid: hasOOB };
-        }
+      } else {
+        stampOverlayCacheRef.current = null;
       }
       drawGrid(
         ctx,
-        d.pixelMap,
+        pixelBuffer,
         d.width,
         d.height,
         d.baseCellSize,
@@ -800,6 +988,8 @@ export function Canvas({
     });
   }, []);
 
+  scheduleRedrawRef.current = scheduleRedraw;
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !containerSize.width || !containerSize.height) {
@@ -818,13 +1008,10 @@ export function Canvas({
   useEffect(() => {
     scheduleRedraw();
   }, [
-    pixelMap,
     width,
     height,
     baseCellSize,
     selectedColor,
-    translate,
-    scale,
     highlightedPixels,
     moveOverlay,
     stampOverlayPixels,
@@ -838,19 +1025,17 @@ export function Canvas({
     ) {
       return;
     }
-    let animId = 0;
-    const loop = () => {
+    const intervalId = setInterval(() => {
       scheduleRedraw();
-      animId = requestAnimationFrame(loop);
-    };
-    animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
+    }, 67);
+    return () => clearInterval(intervalId);
   }, [highlightedPixels, moveOverlay, scheduleRedraw]);
 
   useEffect(() => {
     return () => {
       cancelAnimationFrame(rafRef.current);
       needsDrawRef.current = false;
+      clearTimeout(syncTimeoutRef.current);
       if (previewRafRef.current) {
         cancelAnimationFrame(previewRafRef.current);
       }
@@ -934,10 +1119,11 @@ export function Canvas({
           y: translateRef.current.y - event.deltaY,
         });
       }
+      deferStateSync();
     };
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
-  }, [zoomTo, setTranslateSafe]);
+  }, [zoomTo, setTranslateSafe, deferStateSync]);
 
   const updatePreviewCell = useCallback(
     (clientX: number, clientY: number) => {
@@ -1082,8 +1268,6 @@ export function Canvas({
         if (nextHover?.x !== prev?.x || nextHover?.y !== prev?.y) {
           hoveredCellRef.current = nextHover;
           scheduleRedraw();
-        } else {
-          scheduleRedraw();
         }
       }
     }
@@ -1112,9 +1296,9 @@ export function Canvas({
       const nextX = centerX - worldX * nextScale;
       const nextY = centerY - worldY * nextScale;
       const clamped = clampTranslate(nextX, nextY, nextScale);
-      setScale(nextScale);
+      scaleRef.current = nextScale;
       translateRef.current = clamped;
-      setTranslate(clamped);
+      scheduleRedraw();
       return;
     }
 
@@ -1204,6 +1388,9 @@ export function Canvas({
       if (hadPaintStroke) {
         onStrokeEnd?.();
       }
+      // Sync refs → React state after interaction ends
+      setTranslate(translateRef.current);
+      setScale(scaleRef.current);
     }
 
     if (movePreviewActive && !isCoarsePointer) {
@@ -1260,6 +1447,7 @@ export function Canvas({
           resetView();
         } else {
           zoomTo(scaleRef.current * ZOOM_STEP, tapX, tapY);
+          syncStateNow();
         }
         lastTapRef.current = { time: 0, x: 0, y: 0 };
       } else {

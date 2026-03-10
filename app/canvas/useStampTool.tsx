@@ -8,6 +8,8 @@ export type StampPixel = { x: number; y: number; color: string };
 type StampOptions = {
   defaultSrc?: string;
   defaultName?: string;
+  enforceColors?: boolean;
+  palette?: string[];
 };
 
 const DEFAULT_STAMP_SRC = "/stamps/urza.png";
@@ -23,6 +25,34 @@ const STAMP_SMOOTHING = true;
 const toHex = (value: number) => value.toString(16).padStart(2, "0");
 const rgbToHex = (r: number, g: number, b: number) =>
   `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+
+function parseHexRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+  ];
+}
+
+function nearestPaletteColor(
+  r: number, g: number, b: number,
+  parsed: { r: number; g: number; b: number; hex: string }[],
+): string {
+  let best = parsed[0].hex;
+  let bestDist = Infinity;
+  for (const c of parsed) {
+    const dr = r - c.r;
+    const dg = g - c.g;
+    const db = b - c.b;
+    const dist = dr * dr + dg * dg + db * db;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = c.hex;
+    }
+  }
+  return best;
+}
 
 function getImageSize(source: CanvasImageSource) {
   if ("naturalWidth" in source && "naturalHeight" in source) {
@@ -54,6 +84,23 @@ export function useStampTool(options: StampOptions = {}) {
   const [stampError, setStampError] = useState<string | null>(null);
   const stampObjectUrlRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const enforceColors = options.enforceColors ?? false;
+  const palette = options.palette;
+
+  // Pre-parse palette for fast nearest-color lookup
+  const parsedPaletteRef = useRef<{ r: number; g: number; b: number; hex: string }[] | null>(null);
+  const lastPaletteRef = useRef<string[] | undefined>(undefined);
+  if (palette !== lastPaletteRef.current) {
+    lastPaletteRef.current = palette;
+    parsedPaletteRef.current =
+      palette && palette.length > 0
+        ? palette.map((c) => {
+            const [r, g, b] = parseHexRgb(c);
+            return { r, g, b, hex: c.charAt(0) === "#" ? c.toUpperCase() : `#${c.toUpperCase()}` };
+          })
+        : null;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -112,7 +159,11 @@ export function useStampTool(options: StampOptions = {}) {
             g = Math.min(255, Math.round((g * 255) / a));
             b = Math.min(255, Math.round((b * 255) / a));
           }
-          pixels.push({ x: x - Math.floor(stampSize / 2), y: y - Math.floor(stampSize / 2), color: rgbToHex(r, g, b) });
+          const color =
+            enforceColors && parsedPaletteRef.current
+              ? nearestPaletteColor(r, g, b, parsedPaletteRef.current)
+              : rgbToHex(r, g, b);
+          pixels.push({ x: x - Math.floor(stampSize / 2), y: y - Math.floor(stampSize / 2), color });
         }
       }
       setStampPixels(pixels);
@@ -163,7 +214,8 @@ export function useStampTool(options: StampOptions = {}) {
     return () => {
       cancelled = true;
     };
-  }, [stampSrc, stampSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stampSrc, stampSize, enforceColors, palette]);
 
   const handleFileChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {

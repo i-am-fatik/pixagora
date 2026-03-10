@@ -8,6 +8,16 @@ export const getPreview = query({
     if (!tx) {
       return null;
     }
+
+    // Large commits store a preview PNG — return its URL
+    if (tx.previewStorageId) {
+      const previewUrl = await ctx.storage.getUrl(tx.previewStorageId);
+      if (previewUrl) {
+        return { previewUrl, changes: [] };
+      }
+    }
+
+    // Fallback: return pixel changes directly (small commits / legacy)
     const changes = tx.changes.map((change) => ({
       x: change.x,
       y: change.y,

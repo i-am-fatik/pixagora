@@ -319,7 +319,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
       >
         {Array.from({ length: count }).map((_, index) => (
           <div key={`canvas-reel-${index}`} className="h-full w-full shrink-0">
-            {renderItem(index)}
+            {Math.abs(index - activeIndex) <= 1 ? renderItem(index) : null}
           </div>
         ))}
       </div>
