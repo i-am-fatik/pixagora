@@ -7,7 +7,7 @@ import {
   Play,
 } from "lucide-react";
 
-export type Speed = 1 | 2 | 4 | 8 | 16;
+export type Speed = 10 | 100 | 1000 | 10000;
 
 type ReplayControlsProps = {
   stepIndex: number;
@@ -21,7 +21,13 @@ type ReplayControlsProps = {
   onSpeedChange: (speed: Speed) => void;
 };
 
-const SPEEDS: Speed[] = [1, 2, 4, 8, 16];
+const SPEEDS: Speed[] = [10, 100, 1000, 10000];
+const SPEED_LABELS: Record<Speed, string> = {
+  10: "10/s",
+  100: "100/s",
+  1000: "1K/s",
+  10000: "10K/s",
+};
 
 export function ReplayControls({
   stepIndex,
@@ -98,7 +104,7 @@ export function ReplayControls({
                     : "border text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {s}x
+                {SPEED_LABELS[s]}
               </button>
             ))}
           </div>

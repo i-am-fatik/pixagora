@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "convex/react";
@@ -72,13 +72,17 @@ function ReplayPageInner() {
 
   const totalSteps = sortedTransactions?.length ?? 0;
 
-  const BASE_TX_DURATION = 2000; // ms per transaction at 1x speed
-
   const [stepIndex, setStepIndex] = useState(0);
   const [pixelOffset, setPixelOffset] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState<Speed>(1);
+  const [speed, setSpeed] = useState<Speed>(10);
   const [prevCanvasId, setPrevCanvasId] = useState(canvasId);
+  const accumulatorRef = useRef(0);
+  const rafHandleRef = useRef(0);
+  const stepIndexRef = useRef(0);
+  const pixelOffsetRef = useRef(0);
+  stepIndexRef.current = stepIndex;
+  pixelOffsetRef.current = pixelOffset;
 
 
 
@@ -90,29 +94,80 @@ function ReplayPageInner() {
   }
 
   useEffect(() => {
-    if (!isPlaying || !sortedTransactions || stepIndex >= sortedTransactions.length) {
+    if (!isPlaying || !sortedTransactions) {
       return;
     }
-    const tx = sortedTransactions[stepIndex];
-    const total = tx.changes.length;
-    const delay = (BASE_TX_DURATION / Math.max(1, total)) / speed;
 
-    const timer = setTimeout(() => {
-      const nextOffset = pixelOffset + 1;
-      if (nextOffset >= total) {
-        const nextStep = stepIndex + 1;
-        setStepIndex(nextStep);
-        setPixelOffset(0);
-        if (nextStep >= sortedTransactions.length) {
-          setIsPlaying(false);
-        }
-      } else {
-        setPixelOffset(nextOffset);
+    accumulatorRef.current = 0;
+    let lastTimestamp: number | null = null;
+    let cancelled = false;
+
+    function tick(timestamp: number) {
+      if (cancelled) return;
+
+      if (lastTimestamp === null) {
+        lastTimestamp = timestamp;
+        rafHandleRef.current = requestAnimationFrame(tick);
+        return;
       }
-    }, delay);
 
-    return () => clearTimeout(timer);
-  }, [isPlaying, stepIndex, pixelOffset, speed, sortedTransactions]);
+      const deltaMs = Math.min(timestamp - lastTimestamp, 100);
+      lastTimestamp = timestamp;
+
+      accumulatorRef.current += speed * (deltaMs / 1000);
+      const pixelsToAdvance = Math.floor(accumulatorRef.current);
+      accumulatorRef.current -= pixelsToAdvance;
+
+      if (pixelsToAdvance <= 0) {
+        rafHandleRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      let curStep = stepIndexRef.current;
+      let curOffset = pixelOffsetRef.current;
+      let remaining = pixelsToAdvance;
+      let finished = false;
+
+      while (remaining > 0) {
+        if (curStep >= sortedTransactions!.length) {
+          finished = true;
+          break;
+        }
+        const txLen = sortedTransactions![curStep].changes.length;
+        const canAdvance = txLen - curOffset;
+        if (canAdvance <= 0) {
+          curStep += 1;
+          curOffset = 0;
+          continue;
+        }
+        if (remaining >= canAdvance) {
+          remaining -= canAdvance;
+          curStep += 1;
+          curOffset = 0;
+        } else {
+          curOffset += remaining;
+          remaining = 0;
+        }
+      }
+
+      setStepIndex(curStep);
+      setPixelOffset(curOffset);
+
+      if (finished) {
+        setIsPlaying(false);
+        return;
+      }
+
+      rafHandleRef.current = requestAnimationFrame(tick);
+    }
+
+    rafHandleRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafHandleRef.current);
+    };
+  }, [isPlaying, speed, sortedTransactions]);
 
   const displayPixelMap = useMemo(() => {
     if (!sortedTransactions) {
@@ -211,7 +266,6 @@ function ReplayPageInner() {
               setStepIndex(0);
               setPixelOffset(0);
             }
-            setPixelOffset(0);
             setIsPlaying(true);
           }
         }}
