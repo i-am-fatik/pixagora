@@ -106,31 +106,6 @@ export default defineSchema({
   })
     .index("by_canvas_chunk", ["canvasId", "chunkIndex"]),
 
-  pendingCommits: defineTable({
-    userId: v.id("users"),
-    canvasId: v.id("canvases"),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("validated"),
-      v.literal("failed"),
-    ),
-    totalCost: v.number(),
-    priceHash: v.string(),
-    atRiskCount: v.number(),
-    pixelOpsStorageId: v.id("_storage"),
-    pixelCount: v.number(),
-    basePrice: v.number(),
-    isAdmin: v.boolean(),
-    createdAt: v.number(),
-    expiresAt: v.number(),
-    previewStorageId: v.optional(v.id("_storage")),
-    actorName: v.string(),
-    actorEmail: v.optional(v.string()),
-    transactionId: v.optional(v.id("transactions")),
-  })
-    .index("by_user", ["userId"])
-    .index("by_status_expiresAt", ["status", "expiresAt"]),
-
   chatMessages: defineTable({
     userId: v.id("users"),
     kind: v.union(v.literal("user"), v.literal("reward"), v.literal("commit")),

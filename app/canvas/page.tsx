@@ -1056,9 +1056,11 @@ export default function CanvasPage() {
           if (!uploadResponse.ok) {throw new Error("Failed to upload pixel data");}
           ({ storageId } = await uploadResponse.json());
         }
-        const result = await commitFromBlob({ token, canvasId, storageId });
+        const result = await commitFromBlob({ token, canvasId, storageId, expectedCost: totalCost });
         if (result && "error" in result && result.error) {
-          if (result.error === "NOT_ENOUGH_CREDITS") {
+          if (result.error === "PRICE_CHANGED") {
+            setConfirmOpen(false);
+          } else if (result.error === "NOT_ENOUGH_CREDITS") {
             setConfirmOpen(false);
             handleOpenBuyCredits();
           } else if (result.error === "MIN_PAYMENT_REQUIRED") {

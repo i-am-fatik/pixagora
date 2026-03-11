@@ -4,7 +4,7 @@ import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-import { nextPixelPrice } from "./pricing";
+import { nextPixelPrice, OWNERSHIP_CONFLICT_MSG } from "./pricing";
 
 // ---------------------------------------------------------------------------
 // Binary pixel format: 7 bytes per pixel
@@ -13,13 +13,8 @@ import { nextPixelPrice } from "./pricing";
 const BYTES_PER_PIXEL = 7;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
-// Fast path: combined lookup+write ("upsert") mutations
 const UPSERT_BATCH_SIZE = 400;
 const UPSERT_PARALLELISM = 10;
-
-// Slow path: separate lookup → write (for users who can't overwrite)
-const WRITE_BATCH_SIZE = 500;
-const WRITE_PARALLELISM = 8;
 const FINALIZE_CHUNK_SIZE = 3000;
 
 const MAX_RETRIES = 3;
@@ -42,6 +37,17 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
     }
   }
   throw new Error("Unreachable");
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadPriceMap(ctx: any, canvasId: Id<"canvases">, W: number, H: number): Promise<Uint16Array> {
+  const priceMap = new Uint16Array(W * H);
+  const chunks = await ctx.runQuery(api.priceMapChunks.getChunksForCanvas, { canvasId });
+  for (const chunk of chunks) {
+    const src = new Uint16Array(chunk.data);
+    priceMap.set(src, chunk.rowStart * W);
+  }
+  return priceMap;
 }
 
 function decodePixelBlob(
@@ -201,7 +207,6 @@ function generatePreviewPng(
 type ValidationOk = {
   error: null;
   userId: Id<"users">;
-  isAdmin: boolean;
   canvasWidth: number;
   canvasHeight: number;
   basePrice: number;
@@ -223,11 +228,9 @@ type ValidationError = {
 // ---------------------------------------------------------------------------
 // Action: commit pixels from an uploaded binary blob
 //
-// Two paths:
-//   FAST PATH (canOverwrite=true): combined upsert mutations, 10x parallel,
-//     single-record finalize with changes:[]. ~3-5x faster for large commits.
-//   SLOW PATH: separate lookup → diff → write → chunked finalize.
-//     Required when overwrite permission check is needed per-pixel.
+// Uses per-pixel point lookups via upsertPixelBatch for all users.
+// When the user can't overwrite (totalPaidCzk < 666), a pre-flight
+// ownership check and mutation-level ownership validation are enabled.
 // ---------------------------------------------------------------------------
 export const commitFromBlob = action({
   args: {
@@ -280,42 +283,80 @@ export const commitFromBlob = action({
       return { error: null, totalCost: 0, committed: 0, remaining: v_.credits };
     }
 
-    // =========== Route: fast path vs slow path ===========
-    // Slow path always computes exact cost before writing and checks
-    // expectedCost match — this is the secure default.
-    // Fast path (combined upsert) is only used for admin bulk operations
-    // without expectedCost, where credit checking is less critical.
-    if (v_.isAdmin && expectedCost === undefined) {
-      return fastPathCommit(ctx, canvasId, deduped, v_);
-    } else {
-      return slowPathCommit(ctx, canvasId, deduped, v_, expectedCost);
-    }
+    const canOverwrite = v_.totalPaidCzk >= 666;
+    return executeCommit(ctx, canvasId, deduped, v_, canOverwrite, expectedCost);
   },
 });
 
 // ---------------------------------------------------------------------------
-// FAST PATH: combined upsert (lookup + write in one mutation), 10x parallel,
-// single-record finalize. ~3-5x faster for large commits.
+// Unified commit: per-pixel point lookups via upsertPixelBatch for all users.
+// When canOverwrite=false (totalPaidCzk < 666), runs a pre-flight ownership
+// check and enables ownership validation inside each upsert mutation.
 // ---------------------------------------------------------------------------
-async function fastPathCommit(
+async function executeCommit(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ctx: any,
   canvasId: Id<"canvases">,
   deduped: Map<string, { x: number; y: number; color: string }>,
   v_: ValidationOk,
+  canOverwrite: boolean,
+  expectedCost?: number,
 ): Promise<
-  | { error: string; totalCost?: number; balance?: number }
+  | { error: string; totalCost?: number; balance?: number; requiredCzk?: number; totalPaidCzk?: number; pixelCount?: number }
   | { error: null; totalCost: number; committed: number; remaining: number }
 > {
-  // Quick credit pre-check (lower bound: all pixels at base price)
-  if (!v_.isAdmin) {
-    const lowerBound = v_.basePrice * deduped.size;
-    if (v_.credits < lowerBound) {
-      return { error: "NOT_ENOUGH_CREDITS", totalCost: lowerBound, balance: v_.credits };
+  // --- Pre-checks using priceMap (no DB pixel scans) ---
+  const lowerBound = v_.basePrice * deduped.size;
+  if (v_.credits < lowerBound) {
+    return { error: "NOT_ENOUGH_CREDITS", totalCost: lowerBound, balance: v_.credits };
+  }
+
+  // Load priceMap when needed: for !canOverwrite cost/ownership checks,
+  // or for expectedCost price-change detection.
+  const needsPriceMap = !canOverwrite || expectedCost !== undefined;
+  let estimatedCost: number | undefined;
+  if (needsPriceMap) {
+    try {
+      const priceMap = await loadPriceMap(ctx, canvasId, v_.canvasWidth, v_.canvasHeight);
+      estimatedCost = 0;
+      for (const [, px] of deduped) {
+        const mapPrice = priceMap[px.y * v_.canvasWidth + px.x];
+        estimatedCost += nextPixelPrice(v_.basePrice, mapPrice > 0 ? mapPrice : undefined);
+      }
+
+      // Price-change detection: compare server estimate with client's expectedCost
+      if (expectedCost !== undefined && estimatedCost !== expectedCost) {
+        return { error: "PRICE_CHANGED", totalCost: estimatedCost, balance: v_.credits };
+      }
+
+      // Credit sufficiency check (more accurate than lowerBound)
+      if (!canOverwrite && estimatedCost > v_.credits) {
+        return { error: "NOT_ENOUGH_CREDITS", totalCost: estimatedCost, balance: v_.credits };
+      }
+    } catch (err) {
+      console.warn("[executeCommit] priceMap pre-check failed, proceeding:", err);
     }
   }
 
-  // Generate preview PNG (in-memory, from all incoming pixels)
+  // For users who can't overwrite: run pre-flight ownership check
+  if (!canOverwrite) {
+    const allCoords = [...deduped.values()].map(({ x, y }) => ({ x, y }));
+    for (let i = 0; i < allCoords.length; i += UPSERT_BATCH_SIZE) {
+      const batch = allCoords.slice(i, i + UPSERT_BATCH_SIZE);
+      const result = await withRetry("ownershipCheck", () =>
+        ctx.runQuery(internal.pixels.checkOwnershipBatch, {
+          canvasId,
+          userId: v_.userId,
+          coords: batch,
+        }),
+      ) as { conflict: boolean };
+      if (result.conflict) {
+        return { error: "OVERWRITE_LOCKED", requiredCzk: 666, totalPaidCzk: v_.totalPaidCzk };
+      }
+    }
+  }
+
+  // --- Generate preview PNG (in-memory, from all incoming pixels) ---
   let previewStorageId: Id<"_storage"> | undefined;
   try {
     const pngBuffer = generatePreviewPng(deduped.values());
@@ -325,49 +366,60 @@ async function fastPathCommit(
     console.warn("Preview PNG generation failed, skipping:", err);
   }
 
-  // Build upsert batches
+  // --- Build upsert batches ---
   const allPixels = [...deduped.values()];
   const batches: { x: number; y: number; color: string }[][] = [];
   for (let i = 0; i < allPixels.length; i += UPSERT_BATCH_SIZE) {
     batches.push(allPixels.slice(i, i + UPSERT_BATCH_SIZE));
   }
 
-  // Run upsert batches in parallel rounds
+  // --- Run upsert batches ---
+  // When !canOverwrite, run sequentially so a conflict stops before further
+  // batches write (the failing mutation rolls back its own batch atomically).
   const now = Date.now();
   let totalCost = 0;
   let totalChanged = 0;
   const allPriceUpdates: { x: number; y: number; price: number; color: string }[] = [];
+  const parallelism = canOverwrite ? UPSERT_PARALLELISM : 1;
 
-  for (let i = 0; i < batches.length; i += UPSERT_PARALLELISM) {
-    const round = batches.slice(i, i + UPSERT_PARALLELISM);
-    const results = await Promise.all(
-      round.map((batch) =>
-        withRetry("upsert", () =>
-          ctx.runMutation(internal.pixels.upsertPixelBatch, {
-            canvasId,
-            userId: v_.userId,
-            now,
-            basePrice: v_.basePrice,
-            isAdmin: v_.isAdmin,
-            canvasWidth: v_.canvasWidth,
-            canvasHeight: v_.canvasHeight,
-            pixels: batch,
-          }),
-        ) as Promise<{ batchCost: number; changed: number; priceUpdates: { x: number; y: number; price: number; color: string }[] }>,
-      ),
-    );
-    for (const r of results) {
-      totalCost += r.batchCost;
-      totalChanged += r.changed;
-      for (const pu of r.priceUpdates) {allPriceUpdates.push(pu);}
+  try {
+    for (let i = 0; i < batches.length; i += parallelism) {
+      const round = batches.slice(i, i + parallelism);
+      const results = await Promise.all(
+        round.map((batch) =>
+          withRetry("upsert", () =>
+            ctx.runMutation(internal.pixels.upsertPixelBatch, {
+              canvasId,
+              userId: v_.userId,
+              now,
+              basePrice: v_.basePrice,
+              canvasWidth: v_.canvasWidth,
+              canvasHeight: v_.canvasHeight,
+              checkOwnership: !canOverwrite,
+              pixels: batch,
+            }),
+          ) as Promise<{ batchCost: number; changed: number; priceUpdates: { x: number; y: number; price: number; color: string }[] }>,
+        ),
+      );
+      for (const r of results) {
+        totalCost += r.batchCost;
+        totalChanged += r.changed;
+        for (const pu of r.priceUpdates) {allPriceUpdates.push(pu);}
+      }
     }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes(OWNERSHIP_CONFLICT_MSG)) {
+      return { error: "OVERWRITE_LOCKED", requiredCzk: 666, totalPaidCzk: v_.totalPaidCzk };
+    }
+    throw err;
   }
 
   if (totalChanged === 0) {
     return { error: null, totalCost: 0, committed: 0, remaining: v_.credits };
   }
 
-  // Apply price map updates sequentially (avoids OCC contention from parallel batches)
+  // --- Apply price map updates sequentially (avoids OCC contention) ---
   const PRICE_BATCH = 8000;
   for (let i = 0; i < allPriceUpdates.length; i += PRICE_BATCH) {
     await withRetry("patchChunks", () =>
@@ -380,7 +432,7 @@ async function fastPathCommit(
     );
   }
 
-  // Finalize: store changes in chunked transactions (needed for replay)
+  // --- Finalize: store changes in chunked transactions ---
   const changes = allPriceUpdates.map((pu) => ({
     x: pu.x,
     y: pu.y,
@@ -416,226 +468,7 @@ async function fastPathCommit(
   if (creditError) {
     return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: remaining };
   }
-  return {
-    error: null,
-    totalCost,
-    committed: totalChanged,
-    remaining,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// SLOW PATH: separate lookup → diff → write → chunked finalize.
-// Required when per-pixel overwrite permission check is needed (totalPaidCzk < 666).
-// ---------------------------------------------------------------------------
-async function slowPathCommit(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ctx: any,
-  canvasId: Id<"canvases">,
-  deduped: Map<string, { x: number; y: number; color: string }>,
-  v_: ValidationOk,
-  _expectedCost?: number,
-): Promise<
-  | { error: string; totalCost?: number; balance?: number; requiredCzk?: number; totalPaidCzk?: number; pixelCount?: number }
-  | { error: null; totalCost: number; committed: number; remaining: number }
-> {
-  type ExistingPixel = { _id: Id<"pixels">; color: string; price: number; userId: Id<"users"> };
-
-  // Bounding-box range scan for existing pixels
-  const existingMap = new Map<string, ExistingPixel>();
-  {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const { x, y } of deduped.values()) {
-      if (x < minX) {minX = x;}
-      if (y < minY) {minY = y;}
-      if (x > maxX) {maxX = x;}
-      if (y > maxY) {maxY = y;}
-    }
-
-    let cursor: string | null = null;
-    let isDone = false;
-    while (!isDone) {
-      const result = await withRetry("lookup", () =>
-        ctx.runQuery(internal.pixels.lookupExistingPixelsBounded, {
-          canvasId,
-          minX, maxX, minY, maxY,
-          paginationOpts: { numItems: 2000, cursor },
-        }) as Promise<{
-          pixels: { _id: Id<"pixels">; x: number; y: number; color: string; price: number; userId: Id<"users"> }[];
-          isDone: boolean;
-          continueCursor: string;
-        }>,
-      );
-      for (const doc of result.pixels) {
-        if (deduped.has(`${doc.x},${doc.y}`)) {
-          existingMap.set(`${doc.x},${doc.y}`, {
-            _id: doc._id,
-            color: doc.color,
-            price: doc.price,
-            userId: doc.userId,
-          });
-        }
-      }
-      isDone = result.isDone;
-      cursor = result.continueCursor;
-    }
-  }
-
-  // In-memory diff
-  type Change = { x: number; y: number; color: string; price: number; previousColor?: string };
-  type InsertOp = { x: number; y: number; color: string; price: number };
-  type UpdateOp = { id: Id<"pixels">; x: number; y: number; color: string; price: number };
-
-  const inserts: InsertOp[] = [];
-  const updates: UpdateOp[] = [];
-  const changes: Change[] = [];
-  let totalCost = 0;
-
-  for (const [key, px] of deduped) {
-    const existing = existingMap.get(key);
-    if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) {continue;}
-
-    if (existing && existing.userId !== v_.userId) {
-      if (!v_.isAdmin && v_.totalPaidCzk < 666) {
-        return { error: "OVERWRITE_LOCKED", requiredCzk: 666, totalPaidCzk: v_.totalPaidCzk };
-      }
-    }
-
-    const price = v_.isAdmin ? 0 : nextPixelPrice(v_.basePrice, existing?.price);
-    totalCost += price;
-    changes.push({ x: px.x, y: px.y, color: px.color, price, previousColor: existing?.color });
-
-    if (existing) {
-      updates.push({ id: existing._id, x: px.x, y: px.y, color: px.color, price });
-    } else {
-      inserts.push({ x: px.x, y: px.y, color: px.color, price });
-    }
-  }
-
-  if (changes.length === 0) {
-    return { error: null, totalCost: 0, committed: 0, remaining: v_.credits };
-  }
-
-  if (!v_.isAdmin && totalCost > v_.credits) {
-    return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: v_.credits };
-  }
-
-  // No COST_MISMATCH check — server always charges the actual cost.
-  // The client estimate (from snapshot price map) is informational only.
-  // Credit check above catches the case where the user can't afford it.
-
-  // Generate preview PNG
-  let previewStorageId: Id<"_storage"> | undefined;
-  try {
-    const pngBuffer = generatePreviewPng(changes);
-    const pngBlob = new Blob([pngBuffer.buffer as ArrayBuffer], { type: "image/png" });
-    previewStorageId = await ctx.storage.store(pngBlob);
-  } catch (err) {
-    console.warn("Preview PNG generation failed, skipping:", err);
-  }
-
-  // Write batches (parallel)
-  const now = Date.now();
-  type WriteBatch = { inserts: InsertOp[]; updates: UpdateOp[] };
-  const writeBatches: WriteBatch[] = [];
-  let bi = 0, ui = 0;
-  while (bi < inserts.length || ui < updates.length) {
-    const batch: WriteBatch = { inserts: [], updates: [] };
-    let count = 0;
-    while (bi < inserts.length && count < WRITE_BATCH_SIZE) { batch.inserts.push(inserts[bi++]); count++; }
-    while (ui < updates.length && count < WRITE_BATCH_SIZE) { batch.updates.push(updates[ui++]); count++; }
-    writeBatches.push(batch);
-  }
-
-  let totalCostDelta = 0;
-  const allPriceUpdates: { x: number; y: number; price: number; color: string }[] = [];
-  for (let i = 0; i < writeBatches.length; i += WRITE_PARALLELISM) {
-    const round = writeBatches.slice(i, i + WRITE_PARALLELISM);
-    const results = await Promise.all(
-      round.map((batch) =>
-        withRetry("write", () =>
-          ctx.runMutation(internal.pixels.writeBatchNoRead, {
-            canvasId,
-            userId: v_.userId,
-            now,
-            basePrice: v_.basePrice,
-            isAdmin: v_.isAdmin,
-            canvasWidth: v_.canvasWidth,
-            canvasHeight: v_.canvasHeight,
-            inserts: batch.inserts,
-            updates: batch.updates,
-          }),
-        ) as Promise<{ costDelta: number; priceUpdates: { x: number; y: number; price: number; color: string }[] }>,
-      ),
-    );
-    for (const r of results) {
-      totalCostDelta += r.costDelta;
-      for (const pu of r.priceUpdates) {allPriceUpdates.push(pu);}
-    }
-  }
-
-  // Apply price map updates sequentially (avoids OCC contention from parallel batches)
-  const PRICE_BATCH = 8000;
-  for (let i = 0; i < allPriceUpdates.length; i += PRICE_BATCH) {
-    await withRetry("patchChunks", () =>
-      ctx.runMutation(internal.priceMapChunks.patchChunks, {
-        canvasId,
-        canvasWidth: v_.canvasWidth,
-        canvasHeight: v_.canvasHeight,
-        pixels: allPriceUpdates.slice(i, i + PRICE_BATCH).map(({ x, y, price }) => ({ x, y, price })),
-      }),
-    );
-  }
-
-  // Adjust totalCost with actual price differences found during writes
-  totalCost += totalCostDelta;
-
-  // Finalize: always store changes and update totalSpent (pixels are already written).
-  // The atomic credit re-check inside finalizeCommit will flag insufficient credits.
-  const actualPriceByKey = new Map<string, { price: number; color: string }>();
-  for (const pu of allPriceUpdates) {
-    actualPriceByKey.set(`${pu.x},${pu.y}`, { price: pu.price, color: pu.color });
-  }
-  const finalChanges = changes.map((c) => {
-    const actual = actualPriceByKey.get(`${c.x},${c.y}`);
-    return {
-      x: c.x,
-      y: c.y,
-      color: actual?.color ?? c.color,
-      price: actual?.price ?? c.price,
-      previousColor: c.previousColor,
-    };
-  });
-
-  let remaining = v_.credits - totalCost;
-  let creditError: string | null = null;
-  for (let i = 0; i < finalChanges.length; i += FINALIZE_CHUNK_SIZE) {
-    const chunk = finalChanges.slice(i, i + FINALIZE_CHUNK_SIZE);
-    const isFirst = i === 0;
-    const result = await withRetry("finalize", () =>
-      ctx.runMutation(internal.pixels.finalizeCommit, {
-        canvasId,
-        userId: v_.userId,
-        changes: chunk,
-        totalCost: isFirst ? totalCost : 0,
-        actorName: v_.nickname,
-        actorEmail: v_.showEmail ? v_.email : undefined,
-        isFirstChunk: isFirst,
-        totalPixelCount: finalChanges.length,
-        ...(isFirst && previewStorageId ? { previewStorageId } : {}),
-      }),
-    ) as { remaining: number; creditError: string | null };
-    remaining = result.remaining;
-    if (result.creditError) {creditError = result.creditError;}
-  }
-
-  // Schedule snapshot once
-  await ctx.runMutation(internal.pixels.scheduleSnapshot, { canvasId });
-
-  if (creditError) {
-    return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: remaining };
-  }
-  return { error: null, totalCost, committed: changes.length, remaining };
+  return { error: null, totalCost, committed: totalChanged, remaining };
 }
 
 // ---------------------------------------------------------------------------
@@ -684,81 +517,14 @@ export const estimateCost = action({
     }
     if (deduped.size === 0) {return { error: null, totalCost: 0, pixelCount: 0 };}
 
-    // Load price map from chunks for fast O(1) lookups
-    let priceMap: Uint16Array | null = null;
-    try {
-      const chunks = await ctx.runQuery(api.priceMapChunks.getChunksForCanvas, { canvasId });
-      if (chunks.length > 0) {
-        const totalPixels = v_.canvasWidth * v_.canvasHeight;
-        priceMap = new Uint16Array(totalPixels);
-        for (const chunk of chunks) {
-          const src = new Uint16Array(chunk.data);
-          priceMap.set(src, chunk.rowStart * v_.canvasWidth);
-        }
-      }
-    } catch (err) {
-      console.warn("[estimateCost] Price map chunk load failed, falling back to DB:", err);
-    }
-
-    if (priceMap) {
-      // Fast path: price map lookup — O(1) per pixel, no DB queries
-      const W = v_.canvasWidth;
-      let totalCost = 0;
-      let pixelCount = 0;
-      for (const [, px] of deduped) {
-        const mapPrice = priceMap[px.y * W + px.x];
-        // mapPrice 0 = pixel doesn't exist in snapshot → base price
-        // mapPrice > 0 = pixel exists at that price → nextPixelPrice
-        const price = v_.isAdmin
-          ? 0
-          : nextPixelPrice(v_.basePrice, mapPrice > 0 ? mapPrice : undefined);
-        totalCost += price;
-        pixelCount++;
-      }
-      return { error: null, totalCost, pixelCount };
-    }
-
-    // Fallback: paginated DB queries (only when no snapshot price map exists)
-    type ExistingPixel = { color: string; price: number };
-    const existingMap = new Map<string, ExistingPixel>();
-    {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const { x, y } of deduped.values()) {
-        if (x < minX) {minX = x;}
-        if (y < minY) {minY = y;}
-        if (x > maxX) {maxX = x;}
-        if (y > maxY) {maxY = y;}
-      }
-      let cursor: string | null = null;
-      let isDone = false;
-      while (!isDone) {
-        const result = await withRetry("estimate-lookup", () =>
-          ctx.runQuery(internal.pixels.lookupExistingPixelsBounded, {
-            canvasId,
-            minX, maxX, minY, maxY,
-            paginationOpts: { numItems: 2000, cursor },
-          }) as Promise<{
-            pixels: { x: number; y: number; color: string; price: number }[];
-            isDone: boolean;
-            continueCursor: string;
-          }>,
-        );
-        for (const doc of result.pixels) {
-          if (deduped.has(`${doc.x},${doc.y}`)) {
-            existingMap.set(`${doc.x},${doc.y}`, { color: doc.color, price: doc.price });
-          }
-        }
-        isDone = result.isDone;
-        cursor = result.continueCursor;
-      }
-    }
+    // Load price map from chunks for O(1) per-pixel lookups
+    const priceMap = await loadPriceMap(ctx, canvasId, v_.canvasWidth, v_.canvasHeight);
 
     let totalCost = 0;
     let pixelCount = 0;
-    for (const [key, px] of deduped) {
-      const existing = existingMap.get(key);
-      if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) {continue;}
-      totalCost += v_.isAdmin ? 0 : nextPixelPrice(v_.basePrice, existing?.price);
+    for (const [, px] of deduped) {
+      const mapPrice = priceMap[px.y * v_.canvasWidth + px.x];
+      totalCost += nextPixelPrice(v_.basePrice, mapPrice > 0 ? mapPrice : undefined);
       pixelCount++;
     }
 

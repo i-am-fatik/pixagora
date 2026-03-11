@@ -3,7 +3,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { nextPixelPrice } from "./pricing";
+import { nextPixelPrice, OWNERSHIP_CONFLICT_MSG } from "./pricing";
 import { computeCredits, computeTotalPaidCzk } from "./credits";
 import { applyPriceUpdates } from "./priceMapChunks";
 
@@ -477,92 +477,35 @@ export const preValidateCommit = internalQuery({
 });
 
 // ---------------------------------------------------------------------------
-// Internal query: point-lookup existing pixels at specific coordinates.
-// Much faster than scanning the entire canvas — cost scales with stamp size,
-// not canvas size. Each .first() scans ≤1 document in the index.
+// Internal query: pre-flight ownership check via per-pixel point lookups.
+// Returns early on first conflict — avoids starting writes that will fail.
 // ---------------------------------------------------------------------------
-export const lookupExistingPixels = internalQuery({
+export const checkOwnershipBatch = internalQuery({
   args: {
     canvasId: v.id("canvases"),
+    userId: v.id("users"),
     coords: v.array(v.object({ x: v.number(), y: v.number() })),
   },
-  handler: async (ctx, { canvasId, coords }) => {
-    const results: {
-      _id: Id<"pixels">;
-      x: number;
-      y: number;
-      color: string;
-      price: number;
-      userId: Id<"users">;
-    }[] = [];
+  handler: async (ctx, { canvasId, userId, coords }) => {
     for (const { x, y } of coords) {
       const pixel = await ctx.db
         .query("pixels")
         .withIndex("by_canvas_xy", (q) =>
           q.eq("canvasId", canvasId).eq("x", x).eq("y", y),
         )
-        .first();
-      if (pixel) {
-        results.push({
-          _id: pixel._id,
-          x: pixel.x,
-          y: pixel.y,
-          color: pixel.color,
-          price: pixel.price,
-          userId: pixel.userId,
-        });
+        .unique();
+      if (pixel && pixel.userId !== userId) {
+        return { conflict: true as const, x, y };
       }
     }
-    return results;
-  },
-});
-
-// ---------------------------------------------------------------------------
-// Internal query: bounding-box range scan for existing pixels.
-// Uses by_canvas_yx index — one range scan instead of N individual lookups.
-// Much faster for large stamps (e.g., 50K pixels = 1 paginated scan vs 50K .first() calls).
-// ---------------------------------------------------------------------------
-export const lookupExistingPixelsBounded = internalQuery({
-  args: {
-    canvasId: v.id("canvases"),
-    minX: v.number(),
-    maxX: v.number(),
-    minY: v.number(),
-    maxY: v.number(),
-    paginationOpts: paginationOptsValidator,
-  },
-  handler: async (ctx, { canvasId, minX, maxX, minY, maxY, paginationOpts }) => {
-    const result = await ctx.db
-      .query("pixels")
-      .withIndex("by_canvas_yx", (q) =>
-        q.eq("canvasId", canvasId).gte("y", minY).lte("y", maxY),
-      )
-      .paginate(paginationOpts);
-
-    // Filter to x range in code (index only covers canvasId + y range)
-    const filtered = result.page
-      .filter((p) => p.x >= minX && p.x <= maxX)
-      .map((p) => ({
-        _id: p._id,
-        x: p.x,
-        y: p.y,
-        color: p.color,
-        price: p.price,
-        userId: p.userId,
-      }));
-
-    return {
-      pixels: filtered,
-      isDone: result.isDone,
-      continueCursor: result.continueCursor,
-    };
+    return { conflict: false as const };
   },
 });
 
 // ---------------------------------------------------------------------------
 // Internal mutation: combined lookup + write ("upsert").
-// Each pixel: index lookup → skip if same color → insert or update.
-// Eliminates the need for a separate lookup phase in commitFromBlob.
+// Each pixel: index lookup → ownership check → skip if same color → write.
+// When checkOwnership=true, throws on foreign pixel (rolls back entire batch).
 // ---------------------------------------------------------------------------
 export const upsertPixelBatch = internalMutation({
   args: {
@@ -570,9 +513,9 @@ export const upsertPixelBatch = internalMutation({
     userId: v.id("users"),
     now: v.number(),
     basePrice: v.number(),
-    isAdmin: v.boolean(),
     canvasWidth: v.number(),
     canvasHeight: v.number(),
+    checkOwnership: v.optional(v.boolean()),
     pixels: v.array(v.object({ x: v.number(), y: v.number(), color: v.string() })),
   },
   handler: async (ctx, args) => {
@@ -587,7 +530,10 @@ export const upsertPixelBatch = internalMutation({
         )
         .unique();
       if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) {continue;}
-      const price = args.isAdmin ? 0 : nextPixelPrice(args.basePrice, existing?.price);
+      if (args.checkOwnership && existing && existing.userId !== args.userId) {
+        throw new Error(OWNERSHIP_CONFLICT_MSG);
+      }
+      const price = nextPixelPrice(args.basePrice, existing?.price);
       batchCost += price;
       if (existing) {
         await ctx.db.patch(existing._id, {
@@ -613,152 +559,6 @@ export const upsertPixelBatch = internalMutation({
     // Price map updates are applied by the calling action after all parallel
     // batches complete, to avoid OCC contention on priceMapChunks documents.
     return { batchCost, changed, priceUpdates };
-  },
-});
-
-// ---------------------------------------------------------------------------
-// Internal mutation: single-record finalize for large commits.
-// Stores changes: [] (preview PNG is the visual reference), single mutation.
-// ---------------------------------------------------------------------------
-export const saveLargeCommitRecord = internalMutation({
-  args: {
-    canvasId: v.id("canvases"),
-    userId: v.id("users"),
-    totalCost: v.number(),
-    totalPixelCount: v.number(),
-    actorName: v.string(),
-    actorEmail: v.optional(v.string()),
-    previewStorageId: v.optional(v.id("_storage")),
-  },
-  handler: async (ctx, args) => {
-    // Verify credits BEFORE committing (totalCost was computed from upsert batches)
-    const currentBalance = await computeCredits(ctx, args.userId);
-    if (args.totalCost > 0 && currentBalance < args.totalCost) {
-      return { error: "NOT_ENOUGH_CREDITS" as const, remaining: currentBalance };
-    }
-
-    const now = Date.now();
-    const transactionId = await ctx.db.insert("transactions", {
-      canvasId: args.canvasId,
-      userId: args.userId,
-      timestamp: now,
-      cost: args.totalCost,
-      changes: [],
-      ...(args.previewStorageId ? { previewStorageId: args.previewStorageId } : {}),
-    });
-
-    const user = await ctx.db.get(args.userId);
-    if (user) {
-      await ctx.db.patch(args.userId, {
-        totalPixelCount: (user.totalPixelCount ?? 0) + args.totalPixelCount,
-        totalSpent: (user.totalSpent ?? 0) + args.totalCost,
-      });
-    }
-
-    await ctx.db.insert("chatMessages", {
-      userId: args.userId,
-      kind: "commit",
-      text: `${args.actorName} zakreslil(a) ${args.totalPixelCount} px.`,
-      createdAt: now,
-      authorName: "PixAgora bot",
-      authorColor: "#ffffff",
-      commitId: transactionId,
-      commitCanvasId: args.canvasId,
-      commitPixelCount: args.totalPixelCount,
-      commitActorName: args.actorName,
-      commitActorEmail: args.actorEmail,
-    });
-
-    const balance = await computeCredits(ctx, args.userId);
-    return { error: null as null, remaining: balance };
-  },
-});
-
-// ---------------------------------------------------------------------------
-// Internal mutation: write batch with price verification.
-// Re-reads each pixel to compute the actual price atomically within the
-// mutation, preventing races where another user changed the pixel between
-// the action's lookup and this write.
-// ---------------------------------------------------------------------------
-export const writeBatchNoRead = internalMutation({
-  args: {
-    canvasId: v.id("canvases"),
-    userId: v.id("users"),
-    now: v.number(),
-    basePrice: v.number(),
-    isAdmin: v.boolean(),
-    canvasWidth: v.number(),
-    canvasHeight: v.number(),
-    inserts: v.array(
-      v.object({
-        x: v.number(),
-        y: v.number(),
-        color: v.string(),
-        price: v.number(),
-      }),
-    ),
-    updates: v.array(
-      v.object({
-        id: v.id("pixels"),
-        x: v.number(),
-        y: v.number(),
-        color: v.string(),
-        price: v.number(),
-      }),
-    ),
-  },
-  handler: async (ctx, args) => {
-    let costDelta = 0;
-    const priceUpdates: { x: number; y: number; price: number; color: string }[] = [];
-
-    for (const ins of args.inserts) {
-      const existing = await ctx.db
-        .query("pixels")
-        .withIndex("by_canvas_xy", (q) =>
-          q.eq("canvasId", args.canvasId).eq("x", ins.x).eq("y", ins.y),
-        )
-        .unique();
-      if (existing) {
-        const realPrice = args.isAdmin ? 0 : nextPixelPrice(args.basePrice, existing.price);
-        costDelta += realPrice - ins.price;
-        await ctx.db.patch(existing._id, {
-          color: ins.color,
-          price: realPrice,
-          userId: args.userId,
-          updatedAt: args.now,
-        });
-        priceUpdates.push({ x: ins.x, y: ins.y, price: realPrice, color: ins.color });
-      } else {
-        await ctx.db.insert("pixels", {
-          canvasId: args.canvasId,
-          x: ins.x,
-          y: ins.y,
-          color: ins.color,
-          price: ins.price,
-          userId: args.userId,
-          updatedAt: args.now,
-        });
-        priceUpdates.push({ x: ins.x, y: ins.y, price: ins.price, color: ins.color });
-      }
-    }
-    for (const upd of args.updates) {
-      const current = await ctx.db.get(upd.id);
-      if (current) {
-        const realPrice = args.isAdmin ? 0 : nextPixelPrice(args.basePrice, current.price);
-        costDelta += realPrice - upd.price;
-        await ctx.db.patch(upd.id, {
-          color: upd.color,
-          price: realPrice,
-          userId: args.userId,
-          updatedAt: args.now,
-        });
-        priceUpdates.push({ x: upd.x, y: upd.y, price: realPrice, color: upd.color });
-      }
-    }
-
-    // Price map updates are applied by the calling action after all parallel
-    // batches complete, to avoid OCC contention on priceMapChunks documents.
-    return { costDelta, priceUpdates };
   },
 });
 
@@ -837,14 +637,6 @@ export const finalizeCommit = internalMutation({
         commitPixelCount: displayCount,
         commitActorName: args.actorName,
         commitActorEmail: args.actorEmail,
-      });
-    }
-
-    // Schedule snapshot only for single-chunk commits (small commit path).
-    // For chunked commits from commitFromBlob, the action schedules it once at the end.
-    if (args.isFirstChunk === undefined) {
-      await ctx.scheduler.runAfter(0, internal.snapshot.generate, {
-        canvasId: args.canvasId,
       });
     }
 

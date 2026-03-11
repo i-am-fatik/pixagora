@@ -18,7 +18,7 @@ export const getChunksForCanvas = query({
 
 // ---------------------------------------------------------------------------
 // Helper: apply sparse price updates to affected chunks (inline in mutations)
-// Called directly from pixels.ts commit, upsertPixelBatch, writeBatchNoRead
+// Called directly from pixels.ts commit
 // ---------------------------------------------------------------------------
 export async function applyPriceUpdates(
   ctx: MutationCtx,

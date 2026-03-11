@@ -1,3 +1,5 @@
+export const OWNERSHIP_CONFLICT_MSG = "OWNERSHIP_CONFLICT";
+
 export function nextPixelPrice(
   basePrice: number,
   currentPrice: number | undefined,
