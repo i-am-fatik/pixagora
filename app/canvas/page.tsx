@@ -346,7 +346,7 @@ export default function CanvasPage() {
       // Evict oldest if cache is too large (keep max 6 canvases)
       if (serverPixelCacheRef.current.size > 6) {
         const firstKey = serverPixelCacheRef.current.keys().next().value;
-        if (firstKey !== undefined) serverPixelCacheRef.current.delete(firstKey);
+        if (firstKey !== undefined) {serverPixelCacheRef.current.delete(firstKey);}
       }
     }
     canvasIdRef.current = canvasId;
@@ -560,7 +560,7 @@ export default function CanvasPage() {
 
   // Fallback: incremental processing of paginated results (only for canvases without snapshot)
   useEffect(() => {
-    if (hasSnapshot) return;
+    if (hasSnapshot) {return;}
     const map = serverPixelMapRef.current;
     const prev = serverPixelProcessedRef.current;
 
@@ -619,14 +619,13 @@ export default function CanvasPage() {
       const layered = new Map<string, string>();
       // Only copy snapshot keys that aren't overridden (still expensive but less common)
       snapshotPixels.forEach((color, key) => {
-        if (!overlayPixels.has(key)) layered.set(key, color);
+        if (!overlayPixels.has(key)) {layered.set(key, color);}
       });
       overlayPixels.forEach((color, key) => layered.set(key, color));
       return layered;
     }
     // No snapshot: just overlay (fallback/paginated path)
     return overlayPixels;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshotPixels, overlayPixels]);
 
   // Pending pixels for rendering (empty when moveDraft is active)
@@ -654,7 +653,7 @@ export default function CanvasPage() {
     // (not from our optimistic merge). Server handles real permission check.
     return Object.keys(effectivePending).some((key) => {
       const inOptimistic = serverPixelMap.get(key);
-      if (inOptimistic) return inOptimistic.userId !== user._id;
+      if (inOptimistic) {return inOptimistic.userId !== user._id;}
       return snapshotPixels?.has(key) ?? false;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -667,9 +666,21 @@ export default function CanvasPage() {
       for (const key of Object.keys(effectivePending)) {
         if (next[key] === undefined) {
           const ex = serverPixelMap.get(key);
-          // Use known price from optimistic data, or basePrice if pixel exists in snapshot
-          next[key] = ex ? ex.price : basePixelMap.has(key) ? pixelPrice : null;
-          changed = true;
+          if (ex) {
+            // Known price from optimistic/server data
+            next[key] = ex.price;
+          } else if (priceMap) {
+            // Accurate price from reactive price map chunks
+            const ci = key.indexOf(",");
+            const px = +key.substring(0, ci);
+            const py = +key.substring(ci + 1);
+            const mp = priceMap[py * gridWidth + px];
+            next[key] = mp > 0 ? mp : (basePixelMap.has(key) ? pixelPrice : null);
+          } else {
+            // priceMap not loaded yet — don't set baseline (skip detection for now)
+            // Once priceMap loads, this effect re-runs and sets the accurate baseline.
+          }
+          if (next[key] !== undefined) {changed = true;}
         }
       }
       for (const key of Object.keys(next)) {
@@ -680,7 +691,7 @@ export default function CanvasPage() {
       }
       return changed ? next : prev;
     });
-  }, [effectivePending, basePixelMap, pixelPrice, serverPixelMap]);
+  }, [effectivePending, basePixelMap, pixelPrice, serverPixelMap, priceMap, gridWidth]);
 
   const pendingCount = Object.keys(effectivePending).length;
   pendingCountRef.current = pendingCount;
@@ -752,9 +763,6 @@ export default function CanvasPage() {
       return { x, y, color };
     });
   }, [effectivePending]);
-
-  const priceChanged = false;
-  const pixelsStolen = false;
 
   const highlightedPixelSet = useMemo(
     () => (confirmOpen ? new Set(Object.keys(effectivePending)) : undefined),
@@ -834,7 +842,7 @@ export default function CanvasPage() {
             headers: { "Content-Type": "application/octet-stream" },
             body: new Blob([buffer]),
           });
-          if (!uploadResponse.ok) throw new Error("Upload failed");
+          if (!uploadResponse.ok) {throw new Error("Upload failed");}
           const { storageId } = await uploadResponse.json();
           preUploadedBlobRef.current = storageId;
         } catch (err) {
@@ -1045,7 +1053,7 @@ export default function CanvasPage() {
             headers: { "Content-Type": "application/octet-stream" },
             body: new Blob([buffer]),
           });
-          if (!uploadResponse.ok) throw new Error("Failed to upload pixel data");
+          if (!uploadResponse.ok) {throw new Error("Failed to upload pixel data");}
           ({ storageId } = await uploadResponse.json());
         }
         const result = await commitFromBlob({ token, canvasId, storageId });
@@ -1461,10 +1469,10 @@ export default function CanvasPage() {
 
             <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Odhad ceny</span>
+                <span className="text-muted-foreground">Cena</span>
                 <span className="inline-flex items-center gap-1 font-semibold">
                   <Coins className="h-3.5 w-3.5" />
-                  ~{totalCost}
+                  {totalCost}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -1476,10 +1484,10 @@ export default function CanvasPage() {
               </div>
               {canAfford && (
                 <div className="flex items-center justify-between border-t pt-1.5 text-xs text-muted-foreground">
-                  <span>Po nákupu cca</span>
+                  <span>Po nákupu</span>
                   <span className="inline-flex items-center gap-1">
                     <Coins className="h-3 w-3" />
-                    ~{balance - totalCost}
+                    {balance - totalCost}
                   </span>
                 </div>
               )}

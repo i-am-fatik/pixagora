@@ -19,7 +19,7 @@ const MAX_CACHED = 6;
 const snapshotCache = new Map<string, CachedSnapshot>();
 
 function evictOldest() {
-  if (snapshotCache.size <= MAX_CACHED) return;
+  if (snapshotCache.size <= MAX_CACHED) {return;}
   const firstKey = snapshotCache.keys().next().value;
   if (firstKey !== undefined) {
     const entry = snapshotCache.get(firstKey);
@@ -65,7 +65,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
 
         const offscreen = new OffscreenCanvas(w, h);
         const ctx = offscreen.getContext("2d");
-        if (!ctx) throw new Error("Failed to get 2d context");
+        if (!ctx) {throw new Error("Failed to get 2d context");}
 
         ctx.drawImage(bitmap, 0, 0);
         const imageData = ctx.getImageData(0, 0, w, h);
@@ -79,7 +79,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
             const g = data[idx + 1];
             const b = data[idx + 2];
             const a = data[idx + 3];
-            if (a < 128) continue;
+            if (a < 128) {continue;}
             const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
             pixels.set(`${x},${y}`, hex);
           }

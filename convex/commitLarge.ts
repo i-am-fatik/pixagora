@@ -132,12 +132,12 @@ function encodePngUncompressed(w: number, h: number, rgba: Uint8Array): Uint8Arr
   const crcTable = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
     let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    for (let k = 0; k < 8; k++) {c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;}
     crcTable[n] = c;
   }
   function crc32(buf: Uint8Array, start: number, len: number): number {
     let c = 0xffffffff;
-    for (let i = start; i < start + len; i++) c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+    for (let i = start; i < start + len; i++) {c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);}
     return (c ^ 0xffffffff) >>> 0;
   }
   const pngLen = 8 + (12 + 13) + (12 + idatData.length) + 12;
@@ -179,10 +179,10 @@ function generatePreviewPng(
   const arr: { x: number; y: number; color: string }[] = [];
   for (const px of pixels) {
     arr.push(px);
-    if (px.x < minX) minX = px.x;
-    if (px.y < minY) minY = px.y;
-    if (px.x > maxX) maxX = px.x;
-    if (px.y > maxY) maxY = px.y;
+    if (px.x < minX) {minX = px.x;}
+    if (px.y < minY) {minY = px.y;}
+    if (px.x > maxX) {maxX = px.x;}
+    if (px.y > maxY) {maxY = px.y;}
   }
   const pw = maxX - minX + 1;
   const ph = maxY - minY + 1;
@@ -244,19 +244,19 @@ export const commitFromBlob = action({
 
     // A1: Download and decode the pixel blob
     const blob = await ctx.storage.get(storageId);
-    if (!blob) throw new Error("Pixel blob not found in storage");
+    if (!blob) {throw new Error("Pixel blob not found in storage");}
     const buffer = await blob.arrayBuffer();
     const rawPixels = decodePixelBlob(buffer);
     await ctx.storage.delete(storageId);
 
-    if (rawPixels.length === 0) throw new Error("No pixels in blob");
+    if (rawPixels.length === 0) {throw new Error("No pixels in blob");}
 
     // A2: Pre-validate user, canvas, permissions, credits
     const validation: ValidationOk | ValidationError = await ctx.runQuery(
       internal.pixels.preValidateCommit,
       { token, canvasId },
     );
-    if (validation.error) return validation as ValidationError;
+    if (validation.error) {return validation as ValidationError;}
     const v_ = validation as ValidationOk;
 
     // A3: Deduplicate & validate BEFORE fetching
@@ -265,9 +265,9 @@ export const commitFromBlob = action({
       ? new Set(v_.palette.map((c) => c.toLowerCase()))
       : null;
     for (const px of rawPixels) {
-      if (!Number.isInteger(px.x) || px.x < 0 || px.x >= v_.canvasWidth) continue;
-      if (!Number.isInteger(px.y) || px.y < 0 || px.y >= v_.canvasHeight) continue;
-      if (!HEX_COLOR_RE.test(px.color)) continue;
+      if (!Number.isInteger(px.x) || px.x < 0 || px.x >= v_.canvasWidth) {continue;}
+      if (!Number.isInteger(px.y) || px.y < 0 || px.y >= v_.canvasHeight) {continue;}
+      if (!HEX_COLOR_RE.test(px.color)) {continue;}
 
       let color = px.color;
       if (allowedColors && !allowedColors.has(color.toLowerCase())) {
@@ -336,7 +336,7 @@ async function fastPathCommit(
   const now = Date.now();
   let totalCost = 0;
   let totalChanged = 0;
-  const allPriceUpdates: { x: number; y: number; price: number }[] = [];
+  const allPriceUpdates: { x: number; y: number; price: number; color: string }[] = [];
 
   for (let i = 0; i < batches.length; i += UPSERT_PARALLELISM) {
     const round = batches.slice(i, i + UPSERT_PARALLELISM);
@@ -353,13 +353,13 @@ async function fastPathCommit(
             canvasHeight: v_.canvasHeight,
             pixels: batch,
           }),
-        ) as Promise<{ batchCost: number; changed: number; priceUpdates: { x: number; y: number; price: number }[] }>,
+        ) as Promise<{ batchCost: number; changed: number; priceUpdates: { x: number; y: number; price: number; color: string }[] }>,
       ),
     );
     for (const r of results) {
       totalCost += r.batchCost;
       totalChanged += r.changed;
-      for (const pu of r.priceUpdates) allPriceUpdates.push(pu);
+      for (const pu of r.priceUpdates) {allPriceUpdates.push(pu);}
     }
   }
 
@@ -375,41 +375,52 @@ async function fastPathCommit(
         canvasId,
         canvasWidth: v_.canvasWidth,
         canvasHeight: v_.canvasHeight,
-        pixels: allPriceUpdates.slice(i, i + PRICE_BATCH),
+        pixels: allPriceUpdates.slice(i, i + PRICE_BATCH).map(({ x, y, price }) => ({ x, y, price })),
       }),
     );
   }
 
-  // Single finalize: transaction record + chat message + user stats
-  // This also re-checks credits atomically before committing the transaction
-  const result = await withRetry("finalize", () =>
-    ctx.runMutation(internal.pixels.saveLargeCommitRecord, {
-      canvasId,
-      userId: v_.userId,
-      totalCost,
-      totalPixelCount: totalChanged,
-      actorName: v_.nickname,
-      actorEmail: v_.showEmail ? v_.email : undefined,
-      ...(previewStorageId ? { previewStorageId } : {}),
-    }),
-  ) as { error?: string | null; remaining: number };
+  // Finalize: store changes in chunked transactions (needed for replay)
+  const changes = allPriceUpdates.map((pu) => ({
+    x: pu.x,
+    y: pu.y,
+    color: pu.color,
+    price: pu.price,
+  }));
 
-  if (result.error === "NOT_ENOUGH_CREDITS") {
-    // Pixels were already written but user can't afford them.
-    // This is a rare edge case (credit changed between pre-check and finalize).
-    // The pixels are written but not paid for — next snapshot will fix visuals.
-    // We return the error so the client knows.
-    return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: result.remaining };
+  let remaining = v_.credits;
+  let creditError: string | null = null;
+  for (let i = 0; i < changes.length; i += FINALIZE_CHUNK_SIZE) {
+    const chunk = changes.slice(i, i + FINALIZE_CHUNK_SIZE);
+    const isFirst = i === 0;
+    const result = await withRetry("finalize", () =>
+      ctx.runMutation(internal.pixels.finalizeCommit, {
+        canvasId,
+        userId: v_.userId,
+        changes: chunk,
+        totalCost: isFirst ? totalCost : 0,
+        actorName: v_.nickname,
+        actorEmail: v_.showEmail ? v_.email : undefined,
+        isFirstChunk: isFirst,
+        totalPixelCount: changes.length,
+        ...(isFirst && previewStorageId ? { previewStorageId } : {}),
+      }),
+    ) as { remaining: number; creditError: string | null };
+    remaining = result.remaining;
+    if (result.creditError) {creditError = result.creditError;}
   }
 
   // Schedule snapshot once
   await ctx.runMutation(internal.pixels.scheduleSnapshot, { canvasId });
 
+  if (creditError) {
+    return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: remaining };
+  }
   return {
     error: null,
     totalCost,
     committed: totalChanged,
-    remaining: result.remaining,
+    remaining,
   };
 }
 
@@ -423,7 +434,7 @@ async function slowPathCommit(
   canvasId: Id<"canvases">,
   deduped: Map<string, { x: number; y: number; color: string }>,
   v_: ValidationOk,
-  expectedCost?: number,
+  _expectedCost?: number,
 ): Promise<
   | { error: string; totalCost?: number; balance?: number; requiredCzk?: number; totalPaidCzk?: number; pixelCount?: number }
   | { error: null; totalCost: number; committed: number; remaining: number }
@@ -435,10 +446,10 @@ async function slowPathCommit(
   {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const { x, y } of deduped.values()) {
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
+      if (x < minX) {minX = x;}
+      if (y < minY) {minY = y;}
+      if (x > maxX) {maxX = x;}
+      if (y > maxY) {maxY = y;}
     }
 
     let cursor: string | null = null;
@@ -482,7 +493,7 @@ async function slowPathCommit(
 
   for (const [key, px] of deduped) {
     const existing = existingMap.get(key);
-    if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) continue;
+    if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) {continue;}
 
     if (existing && existing.userId !== v_.userId) {
       if (!v_.isAdmin && v_.totalPaidCzk < 666) {
@@ -537,7 +548,7 @@ async function slowPathCommit(
   }
 
   let totalCostDelta = 0;
-  const allPriceUpdates: { x: number; y: number; price: number }[] = [];
+  const allPriceUpdates: { x: number; y: number; price: number; color: string }[] = [];
   for (let i = 0; i < writeBatches.length; i += WRITE_PARALLELISM) {
     const round = writeBatches.slice(i, i + WRITE_PARALLELISM);
     const results = await Promise.all(
@@ -554,12 +565,12 @@ async function slowPathCommit(
             inserts: batch.inserts,
             updates: batch.updates,
           }),
-        ) as Promise<{ costDelta: number; priceUpdates: { x: number; y: number; price: number }[] }>,
+        ) as Promise<{ costDelta: number; priceUpdates: { x: number; y: number; price: number; color: string }[] }>,
       ),
     );
     for (const r of results) {
       totalCostDelta += r.costDelta;
-      for (const pu of r.priceUpdates) allPriceUpdates.push(pu);
+      for (const pu of r.priceUpdates) {allPriceUpdates.push(pu);}
     }
   }
 
@@ -571,7 +582,7 @@ async function slowPathCommit(
         canvasId,
         canvasWidth: v_.canvasWidth,
         canvasHeight: v_.canvasHeight,
-        pixels: allPriceUpdates.slice(i, i + PRICE_BATCH),
+        pixels: allPriceUpdates.slice(i, i + PRICE_BATCH).map(({ x, y, price }) => ({ x, y, price })),
       }),
     );
   }
@@ -579,57 +590,51 @@ async function slowPathCommit(
   // Adjust totalCost with actual price differences found during writes
   totalCost += totalCostDelta;
 
-  // Re-check credits after cost adjustment (pixels are already written,
-  // but we can at least reject the transaction record if credits are insufficient)
-  if (!v_.isAdmin && totalCost > v_.credits) {
-    return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: v_.credits };
+  // Finalize: always store changes and update totalSpent (pixels are already written).
+  // The atomic credit re-check inside finalizeCommit will flag insufficient credits.
+  const actualPriceByKey = new Map<string, { price: number; color: string }>();
+  for (const pu of allPriceUpdates) {
+    actualPriceByKey.set(`${pu.x},${pu.y}`, { price: pu.price, color: pu.color });
   }
+  const finalChanges = changes.map((c) => {
+    const actual = actualPriceByKey.get(`${c.x},${c.y}`);
+    return {
+      x: c.x,
+      y: c.y,
+      color: actual?.color ?? c.color,
+      price: actual?.price ?? c.price,
+      previousColor: c.previousColor,
+    };
+  });
 
-  // Finalize: use single-record for large commits, chunked for small
-  let remaining: number;
-  if (changes.length > FINALIZE_CHUNK_SIZE && previewStorageId) {
-    // Large commit: single record with changes:[]
+  let remaining = v_.credits - totalCost;
+  let creditError: string | null = null;
+  for (let i = 0; i < finalChanges.length; i += FINALIZE_CHUNK_SIZE) {
+    const chunk = finalChanges.slice(i, i + FINALIZE_CHUNK_SIZE);
+    const isFirst = i === 0;
     const result = await withRetry("finalize", () =>
-      ctx.runMutation(internal.pixels.saveLargeCommitRecord, {
+      ctx.runMutation(internal.pixels.finalizeCommit, {
         canvasId,
         userId: v_.userId,
-        totalCost,
-        totalPixelCount: changes.length,
+        changes: chunk,
+        totalCost: isFirst ? totalCost : 0,
         actorName: v_.nickname,
         actorEmail: v_.showEmail ? v_.email : undefined,
-        previewStorageId,
+        isFirstChunk: isFirst,
+        totalPixelCount: finalChanges.length,
+        ...(isFirst && previewStorageId ? { previewStorageId } : {}),
       }),
-    ) as { error?: string | null; remaining: number };
-    if (result.error === "NOT_ENOUGH_CREDITS") {
-      return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: result.remaining };
-    }
+    ) as { remaining: number; creditError: string | null };
     remaining = result.remaining;
-  } else {
-    // Small commit: store actual changes
-    remaining = v_.credits - totalCost;
-    for (let i = 0; i < changes.length; i += FINALIZE_CHUNK_SIZE) {
-      const chunk = changes.slice(i, i + FINALIZE_CHUNK_SIZE);
-      const isFirst = i === 0;
-      const result = await withRetry("finalize", () =>
-        ctx.runMutation(internal.pixels.finalizeCommit, {
-          canvasId,
-          userId: v_.userId,
-          changes: chunk,
-          totalCost: isFirst ? totalCost : 0,
-          actorName: v_.nickname,
-          actorEmail: v_.showEmail ? v_.email : undefined,
-          isFirstChunk: isFirst,
-          totalPixelCount: changes.length,
-          ...(isFirst && previewStorageId ? { previewStorageId } : {}),
-        }),
-      ) as { remaining: number };
-      remaining = result.remaining;
-    }
+    if (result.creditError) {creditError = result.creditError;}
   }
 
   // Schedule snapshot once
   await ctx.runMutation(internal.pixels.scheduleSnapshot, { canvasId });
 
+  if (creditError) {
+    return { error: "NOT_ENOUGH_CREDITS", totalCost, balance: remaining };
+  }
   return { error: null, totalCost, committed: changes.length, remaining };
 }
 
@@ -650,16 +655,16 @@ export const estimateCost = action({
     | { error: null; totalCost: number; pixelCount: number }
   > => {
     const pixelBlob = await ctx.storage.get(storageId);
-    if (!pixelBlob) return { error: "Blob not found" };
+    if (!pixelBlob) {return { error: "Blob not found" };}
     const buffer = await pixelBlob.arrayBuffer();
     const rawPixels = decodePixelBlob(buffer);
-    if (rawPixels.length === 0) return { error: null, totalCost: 0, pixelCount: 0 };
+    if (rawPixels.length === 0) {return { error: null, totalCost: 0, pixelCount: 0 };}
 
     const validation: ValidationOk | ValidationError = await ctx.runQuery(
       internal.pixels.preValidateCommit,
       { token, canvasId },
     );
-    if (validation.error) return { error: validation.error as string };
+    if (validation.error) {return { error: validation.error as string };}
     const v_ = validation as ValidationOk;
 
     // Deduplicate & validate
@@ -668,16 +673,16 @@ export const estimateCost = action({
       ? new Set(v_.palette.map((c) => c.toLowerCase()))
       : null;
     for (const px of rawPixels) {
-      if (!Number.isInteger(px.x) || px.x < 0 || px.x >= v_.canvasWidth) continue;
-      if (!Number.isInteger(px.y) || px.y < 0 || px.y >= v_.canvasHeight) continue;
-      if (!HEX_COLOR_RE.test(px.color)) continue;
+      if (!Number.isInteger(px.x) || px.x < 0 || px.x >= v_.canvasWidth) {continue;}
+      if (!Number.isInteger(px.y) || px.y < 0 || px.y >= v_.canvasHeight) {continue;}
+      if (!HEX_COLOR_RE.test(px.color)) {continue;}
       let color = px.color;
       if (allowedColors && !allowedColors.has(color.toLowerCase())) {
         color = nearestColor(color, v_.palette);
       }
       deduped.set(`${px.x},${px.y}`, { x: px.x, y: px.y, color });
     }
-    if (deduped.size === 0) return { error: null, totalCost: 0, pixelCount: 0 };
+    if (deduped.size === 0) {return { error: null, totalCost: 0, pixelCount: 0 };}
 
     // Load price map from chunks for fast O(1) lookups
     let priceMap: Uint16Array | null = null;
@@ -719,10 +724,10 @@ export const estimateCost = action({
     {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const { x, y } of deduped.values()) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
+        if (x < minX) {minX = x;}
+        if (y < minY) {minY = y;}
+        if (x > maxX) {maxX = x;}
+        if (y > maxY) {maxY = y;}
       }
       let cursor: string | null = null;
       let isDone = false;
@@ -752,7 +757,7 @@ export const estimateCost = action({
     let pixelCount = 0;
     for (const [key, px] of deduped) {
       const existing = existingMap.get(key);
-      if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) continue;
+      if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) {continue;}
       totalCost += v_.isAdmin ? 0 : nextPixelPrice(v_.basePrice, existing?.price);
       pixelCount++;
     }

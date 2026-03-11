@@ -578,7 +578,7 @@ export const upsertPixelBatch = internalMutation({
   handler: async (ctx, args) => {
     let batchCost = 0;
     let changed = 0;
-    const priceUpdates: { x: number; y: number; price: number }[] = [];
+    const priceUpdates: { x: number; y: number; price: number; color: string }[] = [];
     for (const px of args.pixels) {
       const existing = await ctx.db
         .query("pixels")
@@ -586,7 +586,7 @@ export const upsertPixelBatch = internalMutation({
           q.eq("canvasId", args.canvasId).eq("x", px.x).eq("y", px.y),
         )
         .unique();
-      if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) continue;
+      if (existing && existing.color.toLowerCase() === px.color.toLowerCase()) {continue;}
       const price = args.isAdmin ? 0 : nextPixelPrice(args.basePrice, existing?.price);
       batchCost += price;
       if (existing) {
@@ -607,7 +607,7 @@ export const upsertPixelBatch = internalMutation({
           updatedAt: args.now,
         });
       }
-      priceUpdates.push({ x: px.x, y: px.y, price });
+      priceUpdates.push({ x: px.x, y: px.y, price, color: px.color });
       changed++;
     }
     // Price map updates are applied by the calling action after all parallel
@@ -709,7 +709,7 @@ export const writeBatchNoRead = internalMutation({
   },
   handler: async (ctx, args) => {
     let costDelta = 0;
-    const priceUpdates: { x: number; y: number; price: number }[] = [];
+    const priceUpdates: { x: number; y: number; price: number; color: string }[] = [];
 
     for (const ins of args.inserts) {
       const existing = await ctx.db
@@ -727,7 +727,7 @@ export const writeBatchNoRead = internalMutation({
           userId: args.userId,
           updatedAt: args.now,
         });
-        priceUpdates.push({ x: ins.x, y: ins.y, price: realPrice });
+        priceUpdates.push({ x: ins.x, y: ins.y, price: realPrice, color: ins.color });
       } else {
         await ctx.db.insert("pixels", {
           canvasId: args.canvasId,
@@ -738,7 +738,7 @@ export const writeBatchNoRead = internalMutation({
           userId: args.userId,
           updatedAt: args.now,
         });
-        priceUpdates.push({ x: ins.x, y: ins.y, price: ins.price });
+        priceUpdates.push({ x: ins.x, y: ins.y, price: ins.price, color: ins.color });
       }
     }
     for (const upd of args.updates) {
@@ -752,7 +752,7 @@ export const writeBatchNoRead = internalMutation({
           userId: args.userId,
           updatedAt: args.now,
         });
-        priceUpdates.push({ x: upd.x, y: upd.y, price: realPrice });
+        priceUpdates.push({ x: upd.x, y: upd.y, price: realPrice, color: upd.color });
       }
     }
 
@@ -793,6 +793,17 @@ export const finalizeCommit = internalMutation({
 
     const chunkCost = isFirst ? args.totalCost : 0;
 
+    // Atomic credit re-check on first chunk — pixels are already written,
+    // so we always record the transaction and update totalSpent regardless.
+    // The error flag tells the caller (action) that credits were insufficient.
+    let creditError: string | null = null;
+    if (isFirst && chunkCost > 0) {
+      const currentBalance = await computeCredits(ctx, args.userId);
+      if (currentBalance < chunkCost) {
+        creditError = "NOT_ENOUGH_CREDITS";
+      }
+    }
+
     const transactionId = await ctx.db.insert("transactions", {
       canvasId: args.canvasId,
       userId: args.userId,
@@ -804,7 +815,7 @@ export const finalizeCommit = internalMutation({
         : {}),
     });
 
-    // Update cached user stats
+    // Update cached user stats — always, even on credit error (pixels are written)
     const user = await ctx.db.get(args.userId);
     if (user) {
       await ctx.db.patch(args.userId, {
@@ -838,7 +849,7 @@ export const finalizeCommit = internalMutation({
     }
 
     const balance = await computeCredits(ctx, args.userId);
-    return { remaining: balance };
+    return { remaining: balance, creditError };
   },
 });
 

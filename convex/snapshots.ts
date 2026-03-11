@@ -14,7 +14,7 @@ export const getLatestSnapshot = query({
       .withIndex("by_canvas", (q) => q.eq("canvasId", canvasId))
       .order("desc")
       .first();
-    if (!snapshot) return null;
+    if (!snapshot) {return null;}
     const url = await ctx.storage.getUrl(snapshot.storageId);
     return {
       url,
@@ -35,7 +35,7 @@ export const getSnapshotMeta = internalQuery({
       .withIndex("by_canvas", (q) => q.eq("canvasId", canvasId))
       .order("desc")
       .first();
-    if (!snapshot) return null;
+    if (!snapshot) {return null;}
     return {
       _id: snapshot._id,
       storageId: snapshot.storageId,

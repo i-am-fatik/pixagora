@@ -19,7 +19,7 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, retries = 3): P
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const isTimeout = msg.includes("TimeoutError") || msg.includes("timed out");
-      if (!isTimeout || attempt === retries) throw err;
+      if (!isTimeout || attempt === retries) {throw err;}
       console.warn(`[${label}] Attempt ${attempt}/${retries} timed out, retrying...`);
       await new Promise((r) => setTimeout(r, 500 * attempt));
     }
@@ -129,7 +129,7 @@ export const generate = internalAction({
   args: { canvasId: v.id("canvases") },
   handler: async (ctx, { canvasId }): Promise<{ storageId: Id<"_storage">; pixelCount: number }> => {
     const canvas = await ctx.runQuery(api.canvases.getById, { id: canvasId });
-    if (!canvas) throw new Error("Canvas not found");
+    if (!canvas) {throw new Error("Canvas not found");}
 
     const W = canvas.width;
     const H = canvas.height;
@@ -156,7 +156,7 @@ export const generate = internalAction({
           const img = await Jimp.read(existingBuffer);
 
           // Load existing price map from chunks (or create fresh)
-          let priceMap = new Uint16Array(W * H);
+          const priceMap = new Uint16Array(W * H);
           try {
             const chunks = await ctx.runQuery(api.priceMapChunks.getChunksForCanvas, { canvasId });
             for (const chunk of chunks) {
@@ -188,7 +188,7 @@ export const generate = internalAction({
           // Count non-transparent pixels
           let pixelCount = 0;
           for (let i = 3; i < img.bitmap.data.length; i += 4) {
-            if (img.bitmap.data[i] > 0) pixelCount++;
+            if (img.bitmap.data[i] > 0) {pixelCount++;}
           }
 
           await ctx.runMutation(internal.snapshots.saveSnapshot, {

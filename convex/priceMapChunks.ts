@@ -1,7 +1,7 @@
 import { query, internalMutation, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-import { rowsPerChunk, chunkCount, chunkIndexForRow, chunkRowRange } from "./priceMapLayout";
+import { chunkIndexForRow, chunkRowRange } from "./priceMapLayout";
 
 // ---------------------------------------------------------------------------
 // Public query: client subscribes to all chunks for a canvas
@@ -27,9 +27,7 @@ export async function applyPriceUpdates(
   canvasHeight: number,
   pixels: { x: number; y: number; price: number }[],
 ): Promise<void> {
-  if (pixels.length === 0) return;
-
-  const rpc = rowsPerChunk(canvasWidth);
+  if (pixels.length === 0) {return;}
 
   // Group pixels by chunk index
   const byChunk = new Map<number, { x: number; y: number; price: number }[]>();
