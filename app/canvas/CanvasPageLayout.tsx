@@ -12,8 +12,8 @@ import type { ActiveTool } from "./toolbar.types";
 const BRUSH_SIZES = [1, 2, 3, 5, 8];
 
 function BrushGrid({ size }: { size: number }) {
-  const displaySize = Math.min(size, 5);
-  const cellPx = displaySize <= 3 ? 4 : 3;
+  const displaySize = size;
+  const cellPx = size <= 3 ? 4 : size <= 5 ? 3 : 2;
   const gapPx = 1;
   const totalPx = displaySize * cellPx + (displaySize - 1) * gapPx;
   return (
