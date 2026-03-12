@@ -1464,7 +1464,7 @@ export default function CanvasPage() {
               <h2 className="text-xl font-semibold">Překreslování je zamčené</h2>
               <p className="text-sm text-muted-foreground">
                 Překreslovat cizí pixely můžeš jen pokud jsi dohromady zakoupil
-                odměny za alespoň <strong>666 Kč</strong>. Přesuň svoji malbu
+                odměny za alespoň <strong>669 Kč</strong>. Přesuň svoji malbu
                 pomocí nástroje přesunout, nebo si dobij kredity pomocí
                 tlačítek níže.
               </p>

@@ -11,8 +11,8 @@ export function calculateCredits(amountCzk: number): number {
   if (amountCzk < 69) {
     return 0; // Donated money under allowed limit, should not be possible without request manipulation
   }
-  if (amountCzk < 666) {
-    return Math.floor(amountCzk / (69 / 11));
+  if (amountCzk < 669) {
+    return Math.floor(amountCzk / (69 / 222));
   }
-  return Math.floor(amountCzk / (666 / 169));
+  return Math.floor(amountCzk / (669 / 4444));
 }

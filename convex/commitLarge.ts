@@ -229,7 +229,7 @@ type ValidationError = {
 // Action: commit pixels from an uploaded binary blob
 //
 // Uses per-pixel point lookups via upsertPixelBatch for all users.
-// When the user can't overwrite (totalPaidCzk < 666), a pre-flight
+// When the user can't overwrite (totalPaidCzk < 669), a pre-flight
 // ownership check and mutation-level ownership validation are enabled.
 // ---------------------------------------------------------------------------
 export const commitFromBlob = action({
@@ -283,14 +283,14 @@ export const commitFromBlob = action({
       return { error: null, totalCost: 0, committed: 0, remaining: v_.credits };
     }
 
-    const canOverwrite = v_.totalPaidCzk >= 666;
+    const canOverwrite = v_.totalPaidCzk >= 669;
     return executeCommit(ctx, canvasId, deduped, v_, canOverwrite, expectedCost);
   },
 });
 
 // ---------------------------------------------------------------------------
 // Unified commit: per-pixel point lookups via upsertPixelBatch for all users.
-// When canOverwrite=false (totalPaidCzk < 666), runs a pre-flight ownership
+// When canOverwrite=false (totalPaidCzk < 669), runs a pre-flight ownership
 // check and enables ownership validation inside each upsert mutation.
 // ---------------------------------------------------------------------------
 async function executeCommit(
@@ -351,7 +351,7 @@ async function executeCommit(
         }),
       ) as { conflict: boolean };
       if (result.conflict) {
-        return { error: "OVERWRITE_LOCKED", requiredCzk: 666, totalPaidCzk: v_.totalPaidCzk };
+        return { error: "OVERWRITE_LOCKED", requiredCzk: 669, totalPaidCzk: v_.totalPaidCzk };
       }
     }
   }
@@ -410,7 +410,7 @@ async function executeCommit(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes(OWNERSHIP_CONFLICT_MSG)) {
-      return { error: "OVERWRITE_LOCKED", requiredCzk: 666, totalPaidCzk: v_.totalPaidCzk };
+      return { error: "OVERWRITE_LOCKED", requiredCzk: 669, totalPaidCzk: v_.totalPaidCzk };
     }
     throw err;
   }

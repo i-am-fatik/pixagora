@@ -102,6 +102,30 @@ export const findUserForLogin = internalMutation({
   },
 });
 
+// npx convex run credits:multiplyAllCredits
+export const multiplyAllCredits = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const MULTIPLIER = 22;
+    const users = await ctx.db.query("users").collect();
+    const now = Date.now();
+    let updated = 0;
+    for (const user of users) {
+      const current = await computeCredits(ctx, user._id);
+      if (current <= 0) continue;
+      const bonus = current * (MULTIPLIER - 1);
+      await ctx.db.insert("payments", {
+        userId: user._id,
+        creditsDelta: bonus,
+        createdAt: now,
+        source: "credit_multiplier_x22",
+      });
+      updated++;
+    }
+    return { updated, multiplier: MULTIPLIER };
+  },
+});
+
 export const findOrCreateUserMutation = internalMutation({
   args: { email: v.string() },
   handler: async (ctx, { email }) => {

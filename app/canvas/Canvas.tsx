@@ -27,7 +27,7 @@ type CanvasProps = {
   movePreviewPixels?: { x: number; y: number; color: string }[] | null;
   movePreviewActive?: boolean;
   isFreeModePainting?: boolean;
-  onFreePaint?: (x: number, y: number) => void;
+  onFreePaintBatch?: (points: { x: number; y: number }[]) => void;
   onStrokeStart?: () => void;
   onStrokeEnd?: () => void;
   stampOverlayPixels?: { x: number; y: number; color: string }[] | null;
@@ -433,7 +433,7 @@ export function Canvas({
   movePreviewPixels,
   movePreviewActive = false,
   isFreeModePainting = false,
-  onFreePaint,
+  onFreePaintBatch,
   onStrokeStart,
   onStrokeEnd,
   stampOverlayPixels,
@@ -1346,7 +1346,11 @@ export function Canvas({
           height,
         );
         if (cell) {
-          (onFreePaint ?? onPixelClick)(cell.x, cell.y);
+          if (onFreePaintBatch) {
+            onFreePaintBatch([cell]);
+          } else {
+            onPixelClick(cell.x, cell.y);
+          }
           lastPaintedCellRef.current = cell;
         }
       }

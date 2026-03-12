@@ -56,7 +56,7 @@ export function BtcPayPurchase({
   onClose,
 }: BtcPayPurchaseProps) {
   const [email, setEmail] = useState(prefillEmail ?? "");
-  const [amountCzk, setAmountCzk] = useState(666);
+  const [amountCzk, setAmountCzk] = useState(669);
   const [isCreating, setIsCreating] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [, setScriptReady] = useState(false);
@@ -65,8 +65,8 @@ export function BtcPayPurchase({
 
   const credits = calculateCredits(amountCzk);
   const currentTotal = totalPaidCzk + amountCzk;
-  const canOverwrite = currentTotal >= 666;
-  const betterPrice = amountCzk >= 666;
+  const canOverwrite = currentTotal >= 669;
+  const betterPrice = amountCzk >= 669;
 
   const handleClose = () => {
     setInvoiceOpen(false);
@@ -228,7 +228,7 @@ export function BtcPayPurchase({
             </div>
             <Slider
               min={69}
-              max={1332}
+              max={1338}
               step={1}
               value={[amountCzk]}
               onValueChange={(value) => setAmountCzk(value[0])}
@@ -263,7 +263,7 @@ export function BtcPayPurchase({
                 <Ban className="h-4 w-4" />
               )}
               <span className={cn(!betterPrice && "line-through")}>
-                Výhodnější cena při nákupu min 169 kreditů
+                Výhodnější cena při nákupu min 4444 kreditů
               </span>
             </div>
           </div>
