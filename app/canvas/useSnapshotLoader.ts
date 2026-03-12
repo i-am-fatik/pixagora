@@ -5,10 +5,28 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 
-type SnapshotPixelMap = Map<string, string>; // "x,y" → "#rrggbb"
+// ---------------------------------------------------------------------------
+// Compact pixel data: Uint32Array indexed by y * width + x
+// Each entry: 0 = empty, non-zero = 0xFF000000 | (R << 16) | (G << 8) | B
+// Memory: ~1 MB for 500×500 vs 40-80 MB for the old Map<"x,y", "#rrggbb">
+// Build time: ~5 ms vs 50-200 ms (no string allocation)
+// ---------------------------------------------------------------------------
+export type SnapshotPixelData = {
+  pixels: Uint32Array;
+  width: number;
+  height: number;
+};
+
+/** Convert a packed ARGB value back to "#rrggbb" hex string (on-demand, not bulk). */
+export function packedToHex(packed: number): string {
+  const r = (packed >> 16) & 0xff;
+  const g = (packed >> 8) & 0xff;
+  const b = packed & 0xff;
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
 
 type CachedSnapshot = {
-  pixels: SnapshotPixelMap;
+  pixelData: SnapshotPixelData;
   bitmap: ImageBitmap;
   createdAt: number;
   url: string;
@@ -29,13 +47,13 @@ function evictOldest() {
 }
 
 /**
- * Loads the canvas snapshot PNG and decodes it into a pixel map.
+ * Loads the canvas snapshot PNG and decodes it into a compact Uint32Array.
  * Caches decoded snapshots per canvas so switching back is instant.
  *
  * Price map is now handled separately by usePriceMap hook (reactive chunks).
  */
 export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
-  const [snapshotPixels, setSnapshotPixels] = useState<SnapshotPixelMap | null>(
+  const [snapshotPixelData, setSnapshotPixelData] = useState<SnapshotPixelData | null>(
     null,
   );
   const [snapshotBitmap, setSnapshotBitmap] = useState<ImageBitmap | null>(null);
@@ -71,23 +89,19 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
         const imageData = ctx.getImageData(0, 0, w, h);
         const data = imageData.data;
 
-        const pixels: SnapshotPixelMap = new Map();
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            const idx = (y * w + x) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-            const a = data[idx + 3];
-            if (a < 128) {continue;}
-            const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
-            pixels.set(`${x},${y}`, hex);
-          }
+        // Build compact Uint32Array — ~5ms for 500×500 (vs 50-200ms for hex string Map)
+        const len = w * h;
+        const pixels = new Uint32Array(len);
+        for (let i = 0; i < len; i++) {
+          const idx = i * 4;
+          if (data[idx + 3] < 128) continue; // transparent → leave as 0
+          pixels[i] = 0xff000000 | (data[idx] << 16) | (data[idx + 1] << 8) | data[idx + 2];
         }
+        const pixelData: SnapshotPixelData = { pixels, width: w, height: h };
 
         if (loadedCanvasRef.current === canvasIdStr) {
           decodedUrlRef.current = url;
-          setSnapshotPixels(pixels);
+          setSnapshotPixelData(pixelData);
           setSnapshotBitmap(bitmap);
           setSnapshotCreatedAt(createdAt);
           setSnapshotReady(true);
@@ -98,7 +112,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
         if (old && old.bitmap !== bitmap) {
           old.bitmap.close();
         }
-        snapshotCache.set(canvasIdStr, { pixels, bitmap, createdAt, url });
+        snapshotCache.set(canvasIdStr, { pixelData, bitmap, createdAt, url });
         evictOldest();
       } catch (err) {
         console.warn("Snapshot decode failed, falling back to paginated load:", err);
@@ -116,7 +130,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
 
   useEffect(() => {
     if (!canvasId) {
-      setSnapshotPixels(null);
+      setSnapshotPixelData(null);
       setSnapshotBitmap(null);
       setSnapshotReady(false);
       setSnapshotCreatedAt(null);
@@ -135,12 +149,12 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
       const cached = snapshotCache.get(canvasIdStr);
       if (cached) {
         decodedUrlRef.current = cached.url;
-        setSnapshotPixels(cached.pixels);
+        setSnapshotPixelData(cached.pixelData);
         setSnapshotBitmap(cached.bitmap);
         setSnapshotCreatedAt(cached.createdAt);
         setSnapshotReady(true);
       } else {
-        setSnapshotPixels(null);
+        setSnapshotPixelData(null);
         setSnapshotBitmap(null);
         setSnapshotReady(false);
         setSnapshotCreatedAt(null);
@@ -165,7 +179,8 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
   }, [canvasId, snapshotData, snapshotLoading, decodeSnapshotPng]);
 
   return {
-    snapshotPixels,
+    /** Compact pixel data: Uint32Array indexed by y * width + x */
+    snapshotPixelData,
     /** Raw decoded ImageBitmap for fast Canvas rendering (avoids hex string re-parsing) */
     snapshotBitmap,
     snapshotReady,

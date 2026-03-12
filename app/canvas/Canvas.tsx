@@ -165,6 +165,7 @@ function drawGrid(
   moveOverlay?: { map: Map<string, string>; invalid: boolean } | null,
   stampOverlay?: { map: Map<string, string>; invalid: boolean } | null,
   showHoverIndicator = true,
+  skipPixelDraw = false,
 ) {
   const dpr = window.devicePixelRatio || 1;
   ctx.save();
@@ -177,8 +178,10 @@ function drawGrid(
   const hoverFill = cellSize * scale >= 18;
 
   // === Main grid: single drawImage instead of per-cell fillRect ===
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(pixelBuffer, 0, 0, gridW * step, gridH * step);
+  if (!skipPixelDraw) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(pixelBuffer, 0, 0, gridW * step, gridH * step);
+  }
 
   // Viewport bounds for overlays
   const invScale = 1 / scale;
@@ -486,6 +489,10 @@ export function Canvas({
   const pixelBufferRef = useRef<OffscreenCanvas | null>(null);
   const baseImageDataRef = useRef<ImageData | null>(null);
   const appliedPendingKeysRef = useRef<Set<string>>(new Set());
+  // GPU-composited pixel layer: renders pixel data at native resolution,
+  // CSS transform handles pan/zoom (GPU-accelerated, no re-rendering needed).
+  const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
+  const pixelDirtyRef = useRef(true);
   const pendingPixelsRef = useRef(pendingPixels);
   pendingPixelsRef.current = pendingPixels;
   // Stamp overlay cache: avoid rebuilding Map every frame
@@ -516,29 +523,39 @@ export function Canvas({
     Math.min(max, Math.max(min, value));
 
   const MIN_ZOOM = 0.8;
-  const MAX_ZOOM = 60;
-  const ZOOM_STEP = 1.5;
+  const MAX_ZOOM = 128;
+  const ZOOM_STEP = 2;
   /** Small fixed margin (px) above the finger tip for touch clearance. */
   const FINGER_MARGIN = 30;
   /** Fraction of cell size (0..0.5) by which pointer must be inside the cell to count for free paint. Reduces accidental diagonal paints. */
   const FREE_PAINT_CELL_INSET = 0.1;
   const [fitScale] = useState(1);
-  const PREVIEW_MAX = 120;
-  const PREVIEW_MARGIN = 12;
-
-  // Precompute max relative coords of move pixels so we can offset the overlay
-  // such that the bottom-right of the art sits above-left of the finger.
+  // Precompute bounding box of move pixels for offset calculations and preview sizing.
   const moveBounds = useMemo(() => {
     if (!movePreviewPixels || movePreviewPixels.length === 0)
-      return { maxX: 0, maxY: 0 };
+      return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    let minX = Infinity;
+    let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
     for (const p of movePreviewPixels) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
       if (p.x > maxX) maxX = p.x;
       if (p.y > maxY) maxY = p.y;
     }
-    return { maxX, maxY };
+    return { minX, minY, maxX, maxY };
   }, [movePreviewPixels]);
+
+  // Dynamic preview size: ensure at least 1 CSS px per cell for large stamps.
+  const PREVIEW_MAX = useMemo(() => {
+    if (!movePreviewPixels || movePreviewPixels.length === 0) return 120;
+    const artW = moveBounds.maxX - moveBounds.minX + 3;
+    const artH = moveBounds.maxY - moveBounds.minY + 3;
+    const artMaxDim = Math.max(artW, artH);
+    return Math.max(120, Math.min(280, artMaxDim));
+  }, [moveBounds, movePreviewPixels]);
+  const PREVIEW_MARGIN = 12;
 
   const previewPixels = useMemo(() => {
     if (!movePreviewPixels || movePreviewPixels.length === 0) {
@@ -688,6 +705,7 @@ export function Canvas({
     appliedPendingKeysRef.current = applyPendingToBuffer(
       offscreen, imageData, pending, new Set(), width, height,
     );
+    pixelDirtyRef.current = true;
     scheduleRedrawRef.current();
   }, [basePixelMap, width, height, snapshotBitmap, overlayPixels]);
 
@@ -699,6 +717,7 @@ export function Canvas({
     appliedPendingKeysRef.current = applyPendingToBuffer(
       offscreen, baseData, pendingPixels, appliedPendingKeysRef.current, width, height,
     );
+    pixelDirtyRef.current = true;
     scheduleRedrawRef.current();
   }, [pendingPixels, width, height]);
 
@@ -957,6 +976,32 @@ export function Canvas({
       }
       const d = drawRef.current;
       const dpr = window.devicePixelRatio || 1;
+
+      // --- GPU-composited pixel layer ---
+      // Renders pixel data at native resolution; CSS transform handles zoom/pan
+      // on the GPU (no drawImage re-rendering during pan/zoom).
+      const pixelCanvas = pixelCanvasRef.current;
+      if (pixelCanvas) {
+        // Ensure pixel canvas matches grid dimensions
+        if (pixelCanvas.width !== d.width || pixelCanvas.height !== d.height) {
+          pixelCanvas.width = d.width;
+          pixelCanvas.height = d.height;
+          pixelDirtyRef.current = true;
+        }
+        // Copy pixel buffer to pixel canvas only when data changed
+        if (pixelDirtyRef.current) {
+          const pCtx = pixelCanvas.getContext("2d");
+          if (pCtx) {
+            pCtx.drawImage(pixelBuffer, 0, 0);
+          }
+          pixelDirtyRef.current = false;
+        }
+        // Update CSS transform for GPU-composited pan/zoom
+        const step = d.baseCellSize + CELL_GAP;
+        pixelCanvas.style.transform =
+          `translate(${translateRef.current.x}px,${translateRef.current.y}px) scale(${step * scaleRef.current})`;
+      }
+
       // Stamp overlay: cached, only rebuild when hover cell or stamp data changes
       const hoverCell = hoveredCellRef.current;
       let computedStampOverlay: { map: Map<string, string>; invalid: boolean } | null = null;
@@ -1046,6 +1091,7 @@ export function Canvas({
         computedMoveOverlay,
         computedStampOverlay,
         d.showHoverIndicator,
+        !!pixelCanvas,
       );
     });
   }, []);
@@ -1700,6 +1746,18 @@ export function Canvas({
         </button>
       </div>
       <canvas
+        ref={pixelCanvasRef}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          transformOrigin: "0 0",
+          imageRendering: "pixelated",
+          willChange: "transform",
+          pointerEvents: "none",
+        }}
+      />
+      <canvas
         ref={canvasRef}
         style={{
           position: "absolute",
@@ -1717,7 +1775,7 @@ export function Canvas({
           <div
             className={`absolute ${
               isCoarsePointer ? "pointer-events-auto" : "pointer-events-none"
-            } transition-all duration-200`}
+            } transition-all duration-200 ${isPreviewDragging ? "opacity-0" : "opacity-100"}`}
             style={previewStyle}
             onPointerDown={handlePreviewPointerDown}
             onPointerMove={handlePreviewPointerMove}

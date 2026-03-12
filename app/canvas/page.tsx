@@ -26,13 +26,15 @@ import { Button } from "@/components/ui/button";
 import { Coins, Loader2, Move } from "lucide-react";
 import { useStampTool } from "./useStampTool";
 import { StampToolControls } from "./StampToolControls";
-import { useSnapshotLoader } from "./useSnapshotLoader";
+import { useSnapshotLoader, packedToHex } from "./useSnapshotLoader";
 import { usePriceMap } from "./usePriceMap";
 import type { ActiveTool } from "./toolbar.types";
 
 const STARTOVAC_URL = "https://www.startovac.cz/projekty/anarchoagorismus/";
 const EMPTY_PIXEL_MAP = new Map<string, string>();
 const EMPTY_PENDING: Record<string, string> = {};
+
+import { fixConvexUrl } from "./fixConvexUrl";
 
 type PendingChange = {
   key?: string;
@@ -298,7 +300,7 @@ export default function CanvasPage() {
   const preUploadedBlobRef = useRef<string | null>(null);
 
   // Smart loading: load snapshot first, then delta/full paginated data in background
-  const { snapshotPixels, snapshotBitmap, snapshotReady, snapshotCreatedAt } =
+  const { snapshotPixelData, snapshotBitmap, snapshotReady, snapshotCreatedAt } =
     useSnapshotLoader(canvasId);
 
   // PNG-first: display comes entirely from snapshot PNG + optimistic merge.
@@ -628,26 +630,52 @@ export default function CanvasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverPixelVer]);
 
-  // Base pixel map: layered lookup (snapshot + overlay) — avoids copying 200K entries
-  // Only used for logic (color checks in handlers), NOT for Canvas rendering (which uses bitmap)
-  const basePixelMap = useMemo(() => {
-    // When overlay is empty, snapshot IS the base — zero-copy
-    if (snapshotPixels && overlayPixels.size === 0) {
-      return snapshotPixels;
-    }
-    // When overlay exists, create a thin proxy Map that layers overlay on snapshot
-    if (snapshotPixels) {
-      const layered = new Map<string, string>();
-      // Only copy snapshot keys that aren't overridden (still expensive but less common)
-      snapshotPixels.forEach((color, key) => {
-        if (!overlayPixels.has(key)) {layered.set(key, color);}
-      });
-      overlayPixels.forEach((color, key) => layered.set(key, color));
-      return layered;
-    }
-    // No snapshot: just overlay (fallback/paginated path)
-    return overlayPixels;
-  }, [snapshotPixels, overlayPixels]);
+  // ---------------------------------------------------------------------------
+  // Layered pixel lookup — O(1) per access, zero bulk allocation.
+  // Replaces the old 250K-entry Map<"x,y","#rrggbb"> (40-80 MB) with direct
+  // Uint32Array indexing (~1 MB). Hex strings are produced on-demand only.
+  // ---------------------------------------------------------------------------
+  const _snapshotLookup = useCallback(
+    (key: string): { packed: number } | undefined => {
+      if (!snapshotPixelData) return undefined;
+      const ci = key.indexOf(",");
+      const x = +key.substring(0, ci);
+      const y = +key.substring(ci + 1);
+      const idx = y * snapshotPixelData.width + x;
+      if (idx < 0 || idx >= snapshotPixelData.pixels.length) return undefined;
+      const packed = snapshotPixelData.pixels[idx];
+      return packed !== 0 ? { packed } : undefined;
+    },
+    [snapshotPixelData],
+  );
+
+  /** Get the base color for a pixel key ("x,y" → "#rrggbb" | undefined).
+   *  Checks overlay first, then snapshot Uint32Array. */
+  const getBaseColor = useCallback(
+    (key: string): string | undefined => {
+      const overlayColor = overlayPixels.get(key);
+      if (overlayColor !== undefined) return overlayColor;
+      const hit = _snapshotLookup(key);
+      return hit ? packedToHex(hit.packed) : undefined;
+    },
+    [overlayPixels, _snapshotLookup],
+  );
+
+  /** Check if a pixel exists in base data (overlay or snapshot). */
+  const hasBasePixel = useCallback(
+    (key: string): boolean => {
+      if (overlayPixels.has(key)) return true;
+      return _snapshotLookup(key) !== undefined;
+    },
+    [overlayPixels, _snapshotLookup],
+  );
+
+  // Canvas uses snapshotBitmap directly for rendering; the Map prop is only
+  // needed in the no-snapshot fallback path (paginated loading).
+  const canvasBasePixelMap = useMemo(
+    () => (snapshotBitmap ? EMPTY_PIXEL_MAP : overlayPixels),
+    [snapshotBitmap, overlayPixels],
+  );
 
   // Pending pixels for rendering (empty when moveDraft is active)
   const pendingForRender = useMemo(
@@ -658,13 +686,13 @@ export default function CanvasPage() {
   const effectivePending = useMemo(() => {
     const result: Record<string, string> = {};
     for (const [key, color] of Object.entries(pendingState.pending)) {
-      const existingColor = (basePixelMap.get(key) ?? "#ffffff").toLowerCase();
+      const existingColor = (getBaseColor(key) ?? "#ffffff").toLowerCase();
       if (existingColor !== color.toLowerCase()) {
         result[key] = color;
       }
     }
     return result;
-  }, [pendingState.pending, basePixelMap]);
+  }, [pendingState.pending, getBaseColor]);
 
   const hasForeignOverwrite = useMemo(() => {
     if (!isAuthenticated || !user?._id) {
@@ -675,10 +703,10 @@ export default function CanvasPage() {
     return Object.keys(effectivePending).some((key) => {
       const inOptimistic = serverPixelMap.get(key);
       if (inOptimistic) {return inOptimistic.userId !== user._id;}
-      return snapshotPixels?.has(key) ?? false;
+      return _snapshotLookup(key) !== undefined;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectivePending, isAuthenticated, serverPixelVer, snapshotPixels, user?._id]);
+  }, [effectivePending, isAuthenticated, serverPixelVer, _snapshotLookup, user?._id]);
 
   useEffect(() => {
     setPendingPriceBaseline((prev) => {
@@ -696,7 +724,7 @@ export default function CanvasPage() {
             const px = +key.substring(0, ci);
             const py = +key.substring(ci + 1);
             const mp = priceMap[py * gridWidth + px];
-            next[key] = mp > 0 ? mp : (basePixelMap.has(key) ? pixelPrice : null);
+            next[key] = mp > 0 ? mp : (hasBasePixel(key) ? pixelPrice : null);
           } else {
             // priceMap not loaded yet — don't set baseline (skip detection for now)
             // Once priceMap loads, this effect re-runs and sets the accurate baseline.
@@ -712,7 +740,7 @@ export default function CanvasPage() {
       }
       return changed ? next : prev;
     });
-  }, [effectivePending, basePixelMap, pixelPrice, serverPixelMap, priceMap, gridWidth]);
+  }, [effectivePending, hasBasePixel, pixelPrice, serverPixelMap, priceMap, gridWidth]);
 
   const pendingCount = Object.keys(effectivePending).length;
   pendingCountRef.current = pendingCount;
@@ -737,7 +765,7 @@ export default function CanvasPage() {
         const mapPrice = priceMap ? priceMap[py * gridWidth + px] : 0;
         if (mapPrice > 0) {
           cost += nextPixelPrice(pixelPrice, mapPrice);
-        } else if (basePixelMap.has(key)) {
+        } else if (hasBasePixel(key)) {
           cost += nextPixelPrice(pixelPrice, pixelPrice);
         } else {
           cost += pixelPrice;
@@ -746,7 +774,7 @@ export default function CanvasPage() {
     }
     return cost;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectivePending, serverPixelVer, pixelPrice, basePixelMap, priceMap, gridWidth]);
+  }, [effectivePending, serverPixelVer, pixelPrice, hasBasePixel, priceMap, gridWidth]);
 
   const priceIncreaseDetected = useMemo(() => {
     return Object.keys(effectivePending).some((key) => {
@@ -764,13 +792,13 @@ export default function CanvasPage() {
         const px = +key.substring(0, ci);
         const py = +key.substring(ci + 1);
         const mapPrice = priceMap ? priceMap[py * gridWidth + px] : 0;
-        currentPrice = mapPrice > 0 ? mapPrice : (basePixelMap.has(key) ? pixelPrice : undefined);
+        currentPrice = mapPrice > 0 ? mapPrice : (hasBasePixel(key) ? pixelPrice : undefined);
       }
       const currentCost = nextPixelPrice(pixelPrice, currentPrice);
       return currentCost > baselineCost;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectivePending, pendingPriceBaseline, pixelPrice, serverPixelVer, basePixelMap, priceMap, gridWidth]);
+  }, [effectivePending, pendingPriceBaseline, pixelPrice, serverPixelVer, hasBasePixel, priceMap, gridWidth]);
 
   useEffect(() => {
     if (!priceIncreaseDetected) {
@@ -862,7 +890,7 @@ export default function CanvasPage() {
             view.setUint8(offset + 6, parseInt(hex.substring(4, 6), 16));
           }
 
-          const uploadUrl = await generateUploadUrl();
+          const uploadUrl = fixConvexUrl(await generateUploadUrl());
           const uploadResponse = await fetch(uploadUrl, {
             method: "POST",
             headers: { "Content-Type": "application/octet-stream" },
@@ -929,7 +957,7 @@ export default function CanvasPage() {
           continue;
         }
         const key = `${targetX},${targetY}`;
-        const baseColor = basePixelMap.get(key) ?? "#ffffff";
+        const baseColor = getBaseColor(key) ?? "#ffffff";
         const visibleColor = (
           pendingState.pending[key] ?? baseColor
         ).toLowerCase();
@@ -950,7 +978,7 @@ export default function CanvasPage() {
     const half = Math.floor(brushSize / 2);
     if (brushSize <= 1) {
       const key = `${x},${y}`;
-      const baseColor = basePixelMap.get(key) ?? "#ffffff";
+      const baseColor = getBaseColor(key) ?? "#ffffff";
       const visibleColor = (
         pendingState.pending[key] ?? baseColor
       ).toLowerCase();
@@ -971,7 +999,7 @@ export default function CanvasPage() {
           const py = y + dy;
           if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) continue;
           const key = `${px},${py}`;
-          const baseColor = basePixelMap.get(key) ?? "#ffffff";
+          const baseColor = getBaseColor(key) ?? "#ffffff";
           const visibleColor = (
             pendingState.pending[key] ?? baseColor
           ).toLowerCase();
@@ -996,7 +1024,7 @@ export default function CanvasPage() {
     const half = Math.floor(brushSize / 2);
     if (brushSize <= 1) {
       const key = `${x},${y}`;
-      const baseColor = basePixelMap.get(key) ?? "#ffffff";
+      const baseColor = getBaseColor(key) ?? "#ffffff";
       const visibleColor = (
         pendingState.pending[key] ?? baseColor
       ).toLowerCase();
@@ -1014,7 +1042,7 @@ export default function CanvasPage() {
           const py = y + dy;
           if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) continue;
           const key = `${px},${py}`;
-          const baseColor = basePixelMap.get(key) ?? "#ffffff";
+          const baseColor = getBaseColor(key) ?? "#ffffff";
           const visibleColor = (
             pendingState.pending[key] ?? baseColor
           ).toLowerCase();
@@ -1131,7 +1159,7 @@ export default function CanvasPage() {
             view.setUint8(offset + 5, parseInt(hex.substring(2, 4), 16));
             view.setUint8(offset + 6, parseInt(hex.substring(4, 6), 16));
           }
-          const uploadUrl = await generateUploadUrl();
+          const uploadUrl = fixConvexUrl(await generateUploadUrl());
           const uploadResponse = await fetch(uploadUrl, {
             method: "POST",
             headers: { "Content-Type": "application/octet-stream" },
@@ -1265,7 +1293,7 @@ export default function CanvasPage() {
                   <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
                     <Canvas
                       basePixelMap={
-                        index === activeReelIndex ? basePixelMap : EMPTY_PIXEL_MAP
+                        index === activeReelIndex ? canvasBasePixelMap : EMPTY_PIXEL_MAP
                       }
                       snapshotBitmap={
                         index === activeReelIndex ? snapshotBitmap : null
@@ -1607,9 +1635,11 @@ export default function CanvasPage() {
                 )}
                 {isCommitting ? "Odesílám…" : "Potvrdit"}
               </Button>
-              <Button variant="secondary" onClick={handleCancelConfirm}>
-                Zrušit
-              </Button>
+              {!isCommitting && (
+                <Button variant="secondary" onClick={handleCancelConfirm}>
+                  Zrušit
+                </Button>
+              )}
             </div>
           </div>
         </div>
