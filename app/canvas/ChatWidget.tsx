@@ -150,7 +150,7 @@ export function ChatWidget({ isLoggedIn, token, onRequestAuth }: ChatWidgetProps
 
   return (
     <>
-      <div className="fixed bottom-16 right-4 z-40 sm:bottom-[4.5rem]">
+      <div className="fixed bottom-24 right-4 z-40 sm:bottom-[5.5rem]">
         {!open && (
           <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
         )}

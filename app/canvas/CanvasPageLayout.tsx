@@ -4,8 +4,69 @@ import Link from "next/link";
 import Image from "next/image";
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, Coins, Brush, Move, Play, Redo2, Trash2, Undo2, X } from "lucide-react";
+import { Check, Coins, Minus, Move, PenLine, Play, Plus, Redo2, Trash2, Undo2, X } from "lucide-react";
 import { ColorPicker } from "./ColorPicker";
+import { ToolSwitcher } from "./ToolSwitcher";
+import type { ActiveTool } from "./toolbar.types";
+
+const BRUSH_SIZES = [1, 2, 3, 5, 8];
+
+function BrushGrid({ size }: { size: number }) {
+  const displaySize = Math.min(size, 5);
+  const cellPx = displaySize <= 3 ? 4 : 3;
+  const gapPx = 1;
+  const totalPx = displaySize * cellPx + (displaySize - 1) * gapPx;
+  return (
+    <div
+      className="shrink-0"
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${displaySize}, ${cellPx}px)`,
+        gap: `${gapPx}px`,
+        width: totalPx,
+        height: totalPx,
+      }}
+    >
+      {Array.from({ length: displaySize * displaySize }).map((_, i) => (
+        <div key={i} className="rounded-[1px] bg-foreground" />
+      ))}
+    </div>
+  );
+}
+
+function BrushSizePicker({ size, onChange }: { size: number; onChange: (s: number) => void }) {
+  const idx = BRUSH_SIZES.indexOf(size);
+  const canDecrease = idx > 0;
+  const canIncrease = idx < BRUSH_SIZES.length - 1;
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <button
+        type="button"
+        onClick={() => canDecrease && onChange(BRUSH_SIZES[idx - 1])}
+        disabled={!canDecrease}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-30"
+        aria-label="Zmenšit štětec"
+      >
+        <Minus className="h-3 w-3" />
+      </button>
+      <div
+        className="flex h-7 w-7 items-center justify-center"
+        title={`${size}×${size}`}
+      >
+        <BrushGrid size={size} />
+      </div>
+      <button
+        type="button"
+        onClick={() => canIncrease && onChange(BRUSH_SIZES[idx + 1])}
+        disabled={!canIncrease}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-30"
+        aria-label="Zvětšit štětec"
+      >
+        <Plus className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
 
 
 type CanvasPageLayoutProps = {
@@ -34,15 +95,17 @@ type CanvasPageLayoutProps = {
   commitLocked?: boolean;
   onClearPending: () => void;
   canClear: boolean;
-  onMove?: () => void;
-  canMove?: boolean;
-  moveActive?: boolean;
+  activeTool: ActiveTool;
+  onToolChange: (tool: ActiveTool) => void;
+  canMove: boolean;
   showMoveHint?: boolean;
   onDismissMoveHint?: () => void;
   replayCanvasId?: string;
   isFreeModePainting?: boolean;
   onFreeModePaintingChange?: (value: boolean) => void;
-  toolControls?: ReactNode;
+  brushSize?: number;
+  onBrushSizeChange?: (size: number) => void;
+  toolContextControls?: ReactNode;
 };
 
 export function CanvasPageLayout({
@@ -71,15 +134,17 @@ export function CanvasPageLayout({
   commitLocked = false,
   onClearPending,
   canClear,
-  onMove,
-  canMove = false,
-  moveActive = false,
+  activeTool,
+  onToolChange,
+  canMove,
   showMoveHint = false,
   onDismissMoveHint,
   replayCanvasId,
   isFreeModePainting = false,
   onFreeModePaintingChange,
-  toolControls,
+  brushSize = 1,
+  onBrushSizeChange,
+  toolContextControls,
 }: CanvasPageLayoutProps) {
   const showInlineBubble = showFooter;
 
@@ -218,88 +283,64 @@ export function CanvasPageLayout({
       {showFooter && (
         <>
           <footer className="shrink-0 border-t bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-            <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-2 px-2 text-xs sm:h-16 sm:gap-3 sm:px-4">
-              <div data-tutorial="color-picker" className="min-w-0 flex-1">
-                <ColorPicker
-                  colors={colors}
-                  selectedColor={selectedColor}
-                  onSelectColor={onSelectColor}
-                  enforceColors={enforceColors}
-                />
-              </div>
-
-              {toolControls && (
-                <div className="flex items-center gap-2">
-                  {toolControls}
-                </div>
-              )}
-
-              <span className="hidden h-5 w-px bg-muted-foreground/30 sm:inline-block" />
-              <div className="flex items-center gap-1">
-                {onFreeModePaintingChange && (
-                  <button
-                    type="button"
-                    onClick={() => onFreeModePaintingChange(!isFreeModePainting)}
-                    aria-label={
-                      isFreeModePainting
-                        ? "Vypnout režim kreslení tažením"
-                        : "Zapnout režim kreslení tažením"
-                    }
-                    title={
-                      isFreeModePainting
-                        ? "Vypnout režim kreslení tažením"
-                        : "Zapnout režim kreslení tažením"
-                    }
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground sm:h-9 sm:w-9 ${
-                      isFreeModePainting
-                        ? "bg-emerald-500/15 text-emerald-500"
-                        : ""
-                    }`}
-                  >
-                    <Brush className="h-4 w-4" />
-                  </button>
-                )}
-                {onMove && (
-                  <button
-                    type="button"
-                    onClick={onMove}
-                    disabled={!canMove}
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9 ${
-                      moveActive
-                        ? "bg-amber-500/15 text-amber-500"
-                        : ""
-                    }`}
-                    aria-label="Přesunout návrh"
-                  >
-                    <Move className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-
-              <div className="hidden sm:flex sm:items-center sm:gap-3 sm:flex-1">
-                <span className="h-5 w-px bg-muted-foreground/30" />
-                <div className="flex-1" />
-              </div>
-
-              <div className="flex items-center gap-1 shrink-0 sm:gap-2">
-                
-                {showInlineBubble && (
-                  <div className="hidden items-center gap-2 rounded-full border bg-background/80 px-3 py-1 text-[12px] font-medium text-muted-foreground lg:flex">
-                    <span className="whitespace-nowrap">
-                      <strong className="text-foreground">{changedCount}</strong> px
-                    </span>
-                    <span className="text-muted-foreground/60">•</span>
-                    <Coins className="h-4 w-4" />
-                    <span className="whitespace-nowrap">
-                      <strong className="text-foreground">{totalCost}</strong>
-                    </span>
+            {/* ===== MOBILE: two rows ===== */}
+            <div className="md:hidden">
+              {/* Row 1: contextual content — full width */}
+              <div className="mx-auto w-full max-w-6xl px-2 pt-2 pb-1 min-h-[44px]">
+                {activeTool === "paint" && (
+                  <div data-tutorial="color-picker" className="min-w-0">
+                    <ColorPicker
+                      colors={colors}
+                      selectedColor={selectedColor}
+                      onSelectColor={onSelectColor}
+                      enforceColors={enforceColors}
+                    />
                   </div>
                 )}
+                {activeTool === "stamp" && toolContextControls && (
+                  <div className="flex items-center gap-2">
+                    {toolContextControls}
+                  </div>
+                )}
+                {activeTool === "move" && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground px-1">
+                    <Move className="h-4 w-4 shrink-0" />
+                    <span>Klikni pro přesun</span>
+                  </div>
+                )}
+              </div>
+              {/* Row 2: tool switcher + actions */}
+              <div className="mx-auto flex w-full max-w-6xl items-center gap-1.5 px-2 pb-2">
+                <ToolSwitcher
+                  activeTool={activeTool}
+                  onToolChange={onToolChange}
+                  canMove={canMove}
+                />
+                {activeTool === "paint" && (
+                  <>
+                    {onFreeModePaintingChange && (
+                      <button
+                        type="button"
+                        onClick={() => onFreeModePaintingChange(!isFreeModePainting)}
+                        aria-label={isFreeModePainting ? "Vypnout tah" : "Zapnout tah"}
+                        className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground ${
+                          isFreeModePainting ? "bg-emerald-500/15 text-emerald-500" : ""
+                        }`}
+                      >
+                        <PenLine className="h-4 w-4" />
+                      </button>
+                    )}
+                    {onBrushSizeChange && (
+                      <BrushSizePicker size={brushSize} onChange={onBrushSizeChange} />
+                    )}
+                  </>
+                )}
+                <div className="flex-1" />
                 <button
                   type="button"
                   onClick={onUndo}
                   disabled={!canUndo}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40"
                   aria-label="Undo"
                 >
                   <Undo2 className="h-4 w-4" />
@@ -308,7 +349,7 @@ export function CanvasPageLayout({
                   type="button"
                   onClick={onRedo}
                   disabled={!canRedo}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40"
                   aria-label="Redo"
                 >
                   <Redo2 className="h-4 w-4" />
@@ -317,7 +358,7 @@ export function CanvasPageLayout({
                   type="button"
                   onClick={onClearPending}
                   disabled={!canClear}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:h-9 sm:w-9"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40"
                   aria-label="Smazat návrh"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -329,10 +370,9 @@ export function CanvasPageLayout({
                     disabled={!canCommit || isCommitting || commitLocked}
                     aria-label="Zakreslit"
                     data-tutorial="commit"
-                    className="inline-flex h-8 items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50 sm:h-9 sm:px-4 sm:text-sm"
+                    className="inline-flex h-8 items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
                   >
-                    <Check className="h-4 w-4 sm:hidden" />
-                    <span className="hidden sm:inline">Zakreslit</span>
+                    <Check className="h-4 w-4" />
                   </button>
                   {commitLocked && (
                     <div className="pointer-events-none absolute bottom-full right-0 mb-2 w-max max-w-[180px] rounded-full border border-black/10 bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm opacity-0 transition group-hover:opacity-100 dark:border-white/10">
@@ -342,9 +382,131 @@ export function CanvasPageLayout({
                 </div>
               </div>
             </div>
+
+            {/* ===== DESKTOP: single row ===== */}
+            <div className="hidden md:block">
+              <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-3 px-4 text-xs">
+                {/* Tool switcher (inline) */}
+                <ToolSwitcher
+                  activeTool={activeTool}
+                  onToolChange={onToolChange}
+                  canMove={canMove}
+                />
+
+                <span className="h-5 w-px bg-muted-foreground/30" />
+
+                {/* Contextual tool area */}
+                <div data-tutorial="color-picker" className="min-w-0 flex-1">
+                  {activeTool === "paint" && (
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <ColorPicker
+                          colors={colors}
+                          selectedColor={selectedColor}
+                          onSelectColor={onSelectColor}
+                          enforceColors={enforceColors}
+                        />
+                      </div>
+                      {onFreeModePaintingChange && (
+                        <button
+                          type="button"
+                          onClick={() => onFreeModePaintingChange(!isFreeModePainting)}
+                          aria-label={isFreeModePainting ? "Vypnout tah" : "Zapnout tah"}
+                          title={isFreeModePainting ? "Vypnout režim kreslení tažením" : "Zapnout režim kreslení tažením"}
+                          className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground ${
+                            isFreeModePainting ? "bg-emerald-500/15 text-emerald-500" : ""
+                          }`}
+                        >
+                          <PenLine className="h-4 w-4" />
+                        </button>
+                      )}
+                      {onBrushSizeChange && (
+                        <BrushSizePicker size={brushSize} onChange={onBrushSizeChange} />
+                      )}
+                    </div>
+                  )}
+                  {activeTool === "stamp" && toolContextControls && (
+                    <div className="flex items-center gap-2">
+                      {toolContextControls}
+                    </div>
+                  )}
+                  {activeTool === "move" && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Move className="h-4 w-4 shrink-0" />
+                      <span>Klikni kam chceš návrh přesunout</span>
+                    </div>
+                  )}
+                </div>
+
+                <span className="h-5 w-px bg-muted-foreground/30" />
+
+                {/* Stats + action buttons */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {showInlineBubble && (
+                    <div className="flex items-center gap-2 rounded-full border bg-background/80 px-3 py-1 text-[12px] font-medium text-muted-foreground">
+                      <span className="whitespace-nowrap">
+                        <strong className="text-foreground">{changedCount}</strong> px
+                      </span>
+                      <span className="text-muted-foreground/60">•</span>
+                      <Coins className="h-4 w-4" />
+                      <span className="whitespace-nowrap">
+                        <strong className="text-foreground">{totalCost}</strong>
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onUndo}
+                    disabled={!canUndo}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+                    aria-label="Undo"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onRedo}
+                    disabled={!canRedo}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+                    aria-label="Redo"
+                  >
+                    <Redo2 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClearPending}
+                    disabled={!canClear}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+                    aria-label="Smazat návrh"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                  <div className="relative group">
+                    <button
+                      type="button"
+                      onClick={onCommit}
+                      disabled={!canCommit || isCommitting || commitLocked}
+                      aria-label="Zakreslit"
+                      data-tutorial="commit"
+                      className="inline-flex h-9 items-center justify-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      Zakreslit
+                    </button>
+                    {commitLocked && (
+                      <div className="pointer-events-none absolute bottom-full right-0 mb-2 w-max max-w-[180px] rounded-full border border-black/10 bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm opacity-0 transition group-hover:opacity-100 dark:border-white/10">
+                        Plátno bylo uzamčeno
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </footer>
+
+          {/* Floating pixel/cost bubble (mobile + tablet, hidden on lg+ where it's inline) */}
           <div
-            className={`pointer-events-none absolute left-1/2 bottom-16 -translate-x-1/2 sm:bottom-[4.5rem] ${showInlineBubble ? "lg:hidden" : ""}`}
+            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 md:hidden`}
+            style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)" }}
           >
             <div className="flex items-center gap-2 rounded-full border bg-background/90 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
               <span className="whitespace-nowrap">
@@ -366,7 +528,7 @@ export function CanvasPageLayout({
                   <button
                     type="button"
                     onClick={() => {
-                      onMove?.();
+                      onToolChange("move");
                       onDismissMoveHint?.();
                     }}
                     className="inline-flex items-center gap-1 rounded-full border border-black/10 bg-background/80 px-2 py-0.5 text-[11px] font-semibold text-foreground transition hover:text-foreground dark:border-white/10"

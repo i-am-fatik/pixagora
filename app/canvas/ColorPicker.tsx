@@ -94,7 +94,13 @@ export function ColorPicker({
                   : "none",
             }}
           >
-            <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 translate-y-0.5 scale-75 transition-all duration-200 ease-out group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100">
+            <span
+              className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-all duration-200 ease-out ${
+                color === selectedColor
+                  ? "opacity-100 translate-y-0 scale-100"
+                  : "opacity-0 translate-y-0.5 scale-75 group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100"
+              }`}
+            >
               <span className="absolute inset-0 rounded-full bg-black/10 opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
               <span className="absolute inset-0 rounded-full bg-white/10 opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
               <PaintBucket className="relative h-4 w-4 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] mix-blend-difference" />

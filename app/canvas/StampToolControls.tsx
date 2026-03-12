@@ -1,6 +1,6 @@
 "use client";
 
-import { Palette, Stamp } from "lucide-react";
+import { Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { useStampTool } from "./useStampTool";
 
@@ -14,8 +14,6 @@ type StampToolControlsProps = {
 
 export function StampToolControls({ stamp, enforceColors, colors }: StampToolControlsProps) {
   const {
-    tool,
-    setTool,
     stampReady,
     stampError,
     stampName,
@@ -31,25 +29,9 @@ export function StampToolControls({ stamp, enforceColors, colors }: StampToolCon
   } = stamp;
 
   const stampDisabled = !stampReady || !!stampError;
-  const stampEnabled = tool === "stamp";
 
   return (
     <>
-      <Button
-        size="sm"
-        variant={stampEnabled ? "default" : "secondary"}
-        onClick={() => setTool(stampEnabled ? "paint" : "stamp")}
-        disabled={stampDisabled}
-        className="gap-1"
-        title={
-          stampDisabled
-            ? stampError ?? "Razítko se načítá"
-            : `${stampName} · ${stampSize}×${stampSize}`
-        }
-      >
-        <Stamp className="h-4 w-4" />
-        <span className="hidden sm:inline">Razítko</span>
-      </Button>
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-muted-foreground tabular-nums w-12 text-right">
           {stampSize}×{stampSize}
@@ -63,7 +45,11 @@ export function StampToolControls({ stamp, enforceColors, colors }: StampToolCon
           onChange={(e) => setStampSize(Number(e.target.value))}
           onWheel={(e) => e.currentTarget.blur()}
           className="w-20 accent-primary"
-          title={`Velikost razítka: ${stampSize}×${stampSize}`}
+          title={
+            stampDisabled
+              ? stampError ?? "Razítko se načítá"
+              : `${stampName} · ${stampSize}×${stampSize}`
+          }
         />
       </div>
       <input

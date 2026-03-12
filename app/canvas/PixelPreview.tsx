@@ -1,93 +1,120 @@
-import { useMemo } from "react";
+"use client";
 
-function hexLuminance(hex: string): number {
-  const raw = hex.replace("#", "");
-  if (raw.length < 6) {
-    return 0.5;
-  }
-  const r = parseInt(raw.slice(0, 2), 16) / 255;
-  const g = parseInt(raw.slice(2, 4), 16) / 255;
-  const b = parseInt(raw.slice(4, 6), 16) / 255;
-  return 0.299 * r + 0.587 * g + 0.114 * b;
-}
+import { memo, useEffect, useMemo, useRef } from "react";
 
 type PixelPreviewProps = {
   pixels: { x: number; y: number; color: string }[];
   maxSize?: number;
 };
 
-export function PixelPreview({ pixels, maxSize = 140 }: PixelPreviewProps) {
-  const grid = useMemo(() => {
-    if (!pixels.length) {
-      return null;
-    }
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    let lumSum = 0;
-    for (const p of pixels) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
-      lumSum += hexLuminance(p.color);
-    }
-    const avgLum = lumSum / pixels.length;
-    const width = maxX - minX + 1 + 2;
-    const height = maxY - minY + 1 + 2;
-    const maxDim = Math.max(width, height);
-    const cell = Math.max(1, Math.floor(maxSize / maxDim));
-    const scale = maxDim * cell > maxSize ? maxSize / (maxDim * cell) : 1;
-    return { minX, minY, width, height, cell, avgLum, scale };
-  }, [pixels, maxSize]);
+type GridLayout = {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+  cell: number;
+  scale: number;
+};
 
-  if (!grid) {
-    return null;
+function computeLayout(
+  pixels: { x: number; y: number; color: string }[],
+  maxSize: number,
+): GridLayout | null {
+  if (pixels.length === 0) return null;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const p of pixels) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
   }
 
-  const bg = "#ffffff";
+  const width = maxX - minX + 1 + 2;
+  const height = maxY - minY + 1 + 2;
+  const maxDim = Math.max(width, height);
+  const cell = Math.max(1, Math.floor(maxSize / maxDim));
+  const totalPx = maxDim * cell;
+  const scale = totalPx > maxSize ? maxSize / totalPx : 1;
 
-  const rawW = grid.width * grid.cell;
-  const rawH = grid.height * grid.cell;
-  const needsScale = grid.scale < 1;
+  return { minX, minY, width, height, cell, scale };
+}
+
+function drawPreview(
+  canvas: HTMLCanvasElement,
+  pixels: { x: number; y: number; color: string }[],
+  layout: GridLayout,
+): void {
+  const { minX, minY, width, height, cell, scale } = layout;
+
+  const canvasW = Math.round(width * cell * scale);
+  const canvasH = Math.round(height * cell * scale);
+
+  if (canvas.width !== canvasW || canvas.height !== canvasH) {
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+  }
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  const step = cell * scale;
+  ctx.imageSmoothingEnabled = false;
+
+  for (const p of pixels) {
+    const x = (p.x - minX + 1) * step;
+    const y = (p.y - minY + 1) * step;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(
+      Math.round(x),
+      Math.round(y),
+      Math.round(step),
+      Math.round(step),
+    );
+  }
+}
+
+export const PixelPreview = memo(function PixelPreview({
+  pixels,
+  maxSize = 140,
+}: PixelPreviewProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const layout = useMemo(
+    () => computeLayout(pixels, maxSize),
+    [pixels, maxSize],
+  );
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !layout) return;
+    drawPreview(canvas, pixels, layout);
+  }, [pixels, layout]);
+
+  if (!layout) return null;
+
+  const displayW = Math.round(layout.width * layout.cell * layout.scale);
+  const displayH = Math.round(layout.height * layout.cell * layout.scale);
 
   return (
-    <div
-      className="relative overflow-hidden rounded-lg"
+    <canvas
+      ref={canvasRef}
+      width={displayW}
+      height={displayH}
       style={{
-        width: needsScale ? rawW * grid.scale : rawW,
-        height: needsScale ? rawH * grid.scale : rawH,
+        display: "block",
+        width: displayW,
+        height: displayH,
+        borderRadius: "0.5rem",
+        imageRendering: "pixelated",
       }}
-    >
-      <div
-        className="absolute left-0 top-0"
-        style={{
-          width: rawW,
-          height: rawH,
-          backgroundColor: bg,
-          transform: needsScale ? `scale(${grid.scale})` : undefined,
-          transformOrigin: "top left",
-        }}
-      >
-      {pixels.map((p) => {
-        const left = (p.x - grid.minX + 1) * grid.cell;
-        const top = (p.y - grid.minY + 1) * grid.cell;
-        return (
-          <span
-            key={`${p.x}-${p.y}-${p.color}`}
-            className="absolute"
-            style={{
-              left,
-              top,
-              width: grid.cell,
-              height: grid.cell,
-              backgroundColor: p.color,
-            }}
-          />
-        );
-      })}
-      </div>
-    </div>
+    />
   );
-}
+});

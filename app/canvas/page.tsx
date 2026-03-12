@@ -7,6 +7,7 @@ import {
   useReducer,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -27,6 +28,7 @@ import { useStampTool } from "./useStampTool";
 import { StampToolControls } from "./StampToolControls";
 import { useSnapshotLoader } from "./useSnapshotLoader";
 import { usePriceMap } from "./usePriceMap";
+import type { ActiveTool } from "./toolbar.types";
 
 const STARTOVAC_URL = "https://www.startovac.cz/projekty/anarchoagorismus/";
 const EMPTY_PIXEL_MAP = new Map<string, string>();
@@ -230,6 +232,7 @@ export default function CanvasPage() {
   );
   const [selectedColor, setSelectedColorRaw] = useState("#000000");
   const [btcPayPurchaseOpen, setBtcPayPurchaseOpen] = useState(false);
+  const [, startTransition] = useTransition();
   const [tutorialStep, setTutorialStep] = useState<1 | 2 | 3 | null>(null);
   const step2BaselinePendingRef = useRef<number>(0);
   const pendingCountRef = useRef<number>(0);
@@ -265,6 +268,8 @@ export default function CanvasPage() {
   >({});
   const [moveHintDismissed, setMoveHintDismissed] = useState(false);
   const [isFreeModePainting, setIsFreeModePainting] = useState(false);
+  const [activeTool, setActiveTool] = useState<ActiveTool>("paint");
+  const [brushSize, setBrushSize] = useState(1);
   const [pendingState, dispatch] = useReducer(
     pendingReducer,
     initialPendingState,
@@ -323,7 +328,11 @@ export default function CanvasPage() {
     [activeCanvas?.colors],
   );
   const enforceColors = activeCanvas?.enforceColors ?? false;
-  const stampTool = useStampTool({ enforceColors, palette: colors });
+  const stampTool = useStampTool({
+    enforceColors,
+    palette: colors,
+    onToolActivated: () => setActiveTool("stamp"),
+  });
   const gridWidth = activeCanvas?.width ?? 20;
   const gridHeight = activeCanvas?.height ?? 20;
   const pixelPrice = activeCanvas?.pixelPrice ?? 1;
@@ -331,6 +340,12 @@ export default function CanvasPage() {
   // Reactive price map from DB chunks (replaces gzipped file storage + 15s cron)
   const priceMap = usePriceMap(canvasId, gridWidth, gridHeight);
   const totalCanvases = canvases?.length ?? 0;
+
+  // Sync stampTool internal mode with activeTool
+  useEffect(() => {
+    stampTool.setTool(activeTool === "stamp" ? "stamp" : "paint");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTool]);
 
   useEffect(() => {
     if (!canvasId || canvasId === canvasIdRef.current) {
@@ -352,6 +367,7 @@ export default function CanvasPage() {
     canvasIdRef.current = canvasId;
     skipSaveRef.current = true;
     setMoveDraft(null);
+    setActiveTool("paint");
     // Restore serverPixelMap from cache or start fresh
     const cached = serverPixelCacheRef.current.get(canvasId);
     if (cached) {
@@ -464,6 +480,7 @@ export default function CanvasPage() {
     setLoggedIn(false);
     dispatch({ type: "reset" });
     setMoveDraft(null);
+    setActiveTool("paint");
   };
 
   const showInvalidToken = loggedIn && user === null;
@@ -508,6 +525,7 @@ export default function CanvasPage() {
       setLoggedIn(false);
       dispatch({ type: "reset" });
       setMoveDraft(null);
+      setActiveTool("paint");
       setPopupMode("anonymous");
       setPopupOpen(true);
     }
@@ -528,9 +546,12 @@ export default function CanvasPage() {
   const handleOpenClearConfirm = () => setClearConfirmOpen(true);
   const handleCancelClear = () => setClearConfirmOpen(false);
   const handleConfirmClear = () => {
-    dispatch({ type: "reset" });
-    setMoveDraft(null);
     setClearConfirmOpen(false);
+    setMoveDraft(null);
+    setActiveTool("paint");
+    startTransition(() => {
+      dispatch({ type: "reset" });
+    });
   };
 
   // serverPixelMap: optimistic merge data + fallback paginated data (no-snapshot path)
@@ -774,17 +795,21 @@ export default function CanvasPage() {
   const canClear = pendingCount > 0;
 
   const handleUndo = () => {
-    if (pendingState.history.length > 0) {
-      dispatch({ type: "undo" });
-    } else if (pendingCount > 0) {
-      dispatch({ type: "reset" });
-    }
+    startTransition(() => {
+      if (pendingState.history.length > 0) {
+        dispatch({ type: "undo" });
+      } else if (pendingCount > 0) {
+        dispatch({ type: "reset" });
+      }
+    });
   };
 
   const handleRedo = () => {
-    if (pendingState.redo.length > 0) {
-      dispatch({ type: "redo" });
-    }
+    startTransition(() => {
+      if (pendingState.redo.length > 0) {
+        dispatch({ type: "redo" });
+      }
+    });
   };
 
   const LARGE_THRESHOLD = 1000;
@@ -801,8 +826,9 @@ export default function CanvasPage() {
       setOverwriteBlockedOpen(true);
       return;
     }
-    if (moveDraft) {
+    if (activeTool === "move") {
       setMoveDraft(null);
+      setActiveTool("paint");
     }
     if (tutorialStep === 3) {
       setTutorialStep(null);
@@ -866,7 +892,7 @@ export default function CanvasPage() {
   };
 
   const handlePixelClick = (x: number, y: number) => {
-    if (moveDraft) {
+    if (activeTool === "move" && moveDraft) {
       const nextPending: Record<string, string> = {};
       let hasOutOfBounds = false;
       for (const px of moveDraft.pixels) {
@@ -883,9 +909,10 @@ export default function CanvasPage() {
       }
       dispatch({ type: "replace", nextPending });
       setMoveDraft(null);
+      setActiveTool("paint");
       return;
     }
-    if (stampTool.tool === "stamp") {
+    if (activeTool === "stamp") {
       if (!stampTool.stampReady || stampTool.stampPixels.length === 0) {
         return;
       }
@@ -919,71 +946,128 @@ export default function CanvasPage() {
       }
       return;
     }
-    const key = `${x},${y}`;
-    const baseColor = basePixelMap.get(key) ?? "#ffffff";
-    const visibleColor = (
-      pendingState.pending[key] ?? baseColor
-    ).toLowerCase();
-
-    if (selectedColor.toLowerCase() === visibleColor) {
-      dispatch({ type: "apply", key, nextPending: undefined });
+    // Paint with brush size
+    const half = Math.floor(brushSize / 2);
+    if (brushSize <= 1) {
+      const key = `${x},${y}`;
+      const baseColor = basePixelMap.get(key) ?? "#ffffff";
+      const visibleColor = (
+        pendingState.pending[key] ?? baseColor
+      ).toLowerCase();
+      if (selectedColor.toLowerCase() === visibleColor) {
+        dispatch({ type: "apply", key, nextPending: undefined });
+      } else {
+        const nextPending =
+          selectedColor.toLowerCase() === baseColor.toLowerCase()
+            ? undefined
+            : selectedColor;
+        dispatch({ type: "apply", key, nextPending });
+      }
     } else {
+      const changes: { key: string; nextPending?: string }[] = [];
+      for (let dy = -half; dy < brushSize - half; dy++) {
+        for (let dx = -half; dx < brushSize - half; dx++) {
+          const px = x + dx;
+          const py = y + dy;
+          if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) continue;
+          const key = `${px},${py}`;
+          const baseColor = basePixelMap.get(key) ?? "#ffffff";
+          const visibleColor = (
+            pendingState.pending[key] ?? baseColor
+          ).toLowerCase();
+          if (selectedColor.toLowerCase() === visibleColor) continue;
+          const nextPending =
+            selectedColor.toLowerCase() === baseColor.toLowerCase()
+              ? undefined
+              : selectedColor;
+          changes.push({ key, nextPending });
+        }
+      }
+      if (changes.length > 0) {
+        dispatch({ type: "applyBatch", changes });
+      }
+    }
+  };
+
+  const handleFreePaint = (x: number, y: number) => {
+    if (activeTool !== "paint") {
+      return;
+    }
+    const half = Math.floor(brushSize / 2);
+    if (brushSize <= 1) {
+      const key = `${x},${y}`;
+      const baseColor = basePixelMap.get(key) ?? "#ffffff";
+      const visibleColor = (
+        pendingState.pending[key] ?? baseColor
+      ).toLowerCase();
+      if (selectedColor.toLowerCase() === visibleColor) return;
       const nextPending =
         selectedColor.toLowerCase() === baseColor.toLowerCase()
           ? undefined
           : selectedColor;
       dispatch({ type: "apply", key, nextPending });
+    } else {
+      const changes: { key: string; nextPending?: string }[] = [];
+      for (let dy = -half; dy < brushSize - half; dy++) {
+        for (let dx = -half; dx < brushSize - half; dx++) {
+          const px = x + dx;
+          const py = y + dy;
+          if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) continue;
+          const key = `${px},${py}`;
+          const baseColor = basePixelMap.get(key) ?? "#ffffff";
+          const visibleColor = (
+            pendingState.pending[key] ?? baseColor
+          ).toLowerCase();
+          if (selectedColor.toLowerCase() === visibleColor) continue;
+          const nextPending =
+            selectedColor.toLowerCase() === baseColor.toLowerCase()
+              ? undefined
+              : selectedColor;
+          changes.push({ key, nextPending });
+        }
+      }
+      if (changes.length > 0) {
+        dispatch({ type: "applyBatch", changes });
+      }
     }
   };
 
-  const handleFreePaint = (x: number, y: number) => {
-    if (moveDraft) {
-      return;
-    }
-    const key = `${x},${y}`;
-    const baseColor = basePixelMap.get(key) ?? "#ffffff";
-    const visibleColor = (
-      pendingState.pending[key] ?? baseColor
-    ).toLowerCase();
-
-    if (selectedColor.toLowerCase() === visibleColor) {
-      return;
-    }
-    const nextPending =
-      selectedColor.toLowerCase() === baseColor.toLowerCase()
-        ? undefined
-        : selectedColor;
-    dispatch({ type: "apply", key, nextPending });
-  };
-
-  const handleToggleMove = () => {
-    if (moveDraft) {
-      setMoveDraft(null);
-      return;
-    }
-    if (pendingCount === 0) {
-      return;
-    }
-    const pixels = Object.entries(effectivePending).map(([key, color]) => {
-      const [x, y] = key.split(",").map(Number);
-      return { x, y, color };
+  const rawPendingRef = useRef(pendingState.pending);
+  rawPendingRef.current = pendingState.pending;
+  const handleSetActiveTool = useCallback((next: ActiveTool) => {
+    setActiveTool((prev) => {
+      // Leaving move: clear draft
+      if (prev === "move" && next !== "move") {
+        setMoveDraft(null);
+      }
+      // Entering move: capture pending pixels into relative coords
+      // Use raw pending (not effectivePending) to preserve ALL user-drawn
+      // pixels, including those whose color matches the base canvas.
+      if (next === "move") {
+        const ep = rawPendingRef.current;
+        const keys = Object.keys(ep);
+        if (keys.length === 0) return prev;
+        const pixels = keys.map((key) => {
+          const [x, y] = key.split(",").map(Number);
+          return { x, y, color: ep[key] };
+        });
+        let minX = Infinity;
+        let minY = Infinity;
+        for (const p of pixels) {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+        }
+        setMoveDraft({
+          pixels: pixels.map((p) => ({
+            x: p.x - minX,
+            y: p.y - minY,
+            color: p.color,
+          })),
+        });
+      }
+      return next;
     });
-    if (pixels.length === 0) {
-      return;
-    }
-    let minX = Infinity;
-    let minY = Infinity;
-    for (const p of pixels) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-    }
-    const relative = pixels.map((p) => ({
-      x: p.x - minX,
-      y: p.y - minY,
-      color: p.color,
-    }));
-    setMoveDraft({ pixels: relative });
-  };
+  }, []);
 
   // Optimistically merge committed pixels into serverPixelMap so they
   // appear immediately without waiting for paginated query to catch up.
@@ -1139,14 +1223,14 @@ export default function CanvasPage() {
         onCommit={handleOpenConfirm}
         canUndo={canUndo}
         canRedo={canRedo}
-        canCommit={pendingCount > 0 && !!canvasId && !moveDraft && !isCanvasLocked}
+        canCommit={pendingCount > 0 && !!canvasId && activeTool !== "move" && !isCanvasLocked}
         commitLocked={isCanvasLocked}
         isCommitting={isCommitting}
         onClearPending={handleOpenClearConfirm}
         canClear={canClear}
-        onMove={handleToggleMove}
+        activeTool={activeTool}
+        onToolChange={handleSetActiveTool}
         canMove={pendingCount > 0}
-        moveActive={!!moveDraft}
         showMoveHint={priceIncreaseDetected && !moveHintDismissed}
         onDismissMoveHint={() => setMoveHintDismissed(true)}
         showFooter={true}
@@ -1154,7 +1238,9 @@ export default function CanvasPage() {
         replayCanvasId={canvasId}
         isFreeModePainting={isFreeModePainting}
         onFreeModePaintingChange={setIsFreeModePainting}
-        toolControls={<StampToolControls stamp={stampTool} enforceColors={enforceColors} colors={colors} />}
+        brushSize={brushSize}
+        onBrushSizeChange={setBrushSize}
+        toolContextControls={<StampToolControls stamp={stampTool} enforceColors={enforceColors} colors={colors} />}
       >
         {totalCanvases === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
@@ -1206,14 +1292,14 @@ export default function CanvasPage() {
                       movePreviewPixels={
                         index === activeReelIndex ? moveDraft?.pixels ?? null : null
                       }
-                      movePreviewActive={index === activeReelIndex && !!moveDraft}
+                      movePreviewActive={index === activeReelIndex && activeTool === "move" && !!moveDraft}
                       highlightedPixels={
                         index === activeReelIndex
                           ? highlightedPixelSet
                           : undefined
                       }
                       stampOverlayPixels={
-                        index === activeReelIndex && stampTool.tool === "stamp" && stampTool.stampReady
+                        index === activeReelIndex && activeTool === "stamp" && stampTool.stampReady
                           ? stampTool.stampPixels
                           : null
                       }
@@ -1222,7 +1308,7 @@ export default function CanvasPage() {
                           Math.max(stampTool.minStampSize, Math.min(stampTool.maxStampSize, prev + delta))
                         );
                       }}
-                      isFreeModePainting={isFreeModePainting}
+                      isFreeModePainting={activeTool === "paint" && isFreeModePainting}
                       onStrokeStart={() => {
                         strokeHistoryStartRef.current = pendingState.history.length;
                       }}
@@ -1356,7 +1442,7 @@ export default function CanvasPage() {
               variant="secondary"
               onClick={() => {
                 setOverwriteBlockedOpen(false);
-                handleToggleMove();
+                handleSetActiveTool("move");
               }}
               className="w-full gap-2"
             >

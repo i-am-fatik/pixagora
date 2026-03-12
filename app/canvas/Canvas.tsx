@@ -88,6 +88,10 @@ function buildPixelBuffer(
   return { offscreen, imageData };
 }
 
+// Threshold: if more pixels need restoring than this, do a full base redraw
+// instead of per-pixel putImageData (which is very slow on mobile).
+const BULK_RESTORE_THRESHOLD = 64;
+
 function applyPendingToBuffer(
   offscreen: OffscreenCanvas,
   baseImageData: ImageData,
@@ -97,18 +101,38 @@ function applyPendingToBuffer(
   h: number,
 ): Set<string> {
   const octx = offscreen.getContext("2d")!;
-  // Restore pixels no longer pending
-  for (const key of prevKeys) {
-    if (key in pending) continue;
-    const ci = key.indexOf(",");
-    const x = +key.substring(0, ci);
-    const y = +key.substring(ci + 1);
-    if (x >= 0 && x < w && y >= 0 && y < h) {
-      octx.putImageData(baseImageData, 0, 0, x, y, 1, 1);
+  const pendingKeys = Object.keys(pending);
+
+  // Count how many pixels need restoring (removed from pending)
+  let removedCount = 0;
+  if (prevKeys.size > 0) {
+    for (const key of prevKeys) {
+      if (!(key in pending)) {
+        removedCount++;
+        if (removedCount > BULK_RESTORE_THRESHOLD) break;
+      }
     }
   }
+
+  if (removedCount > BULK_RESTORE_THRESHOLD) {
+    // Bulk path: redraw full base image, then paint all pending on top.
+    // One putImageData call replaces thousands of per-pixel calls.
+    octx.putImageData(baseImageData, 0, 0);
+  } else {
+    // Incremental path: restore only removed pixels
+    for (const key of prevKeys) {
+      if (key in pending) continue;
+      const ci = key.indexOf(",");
+      const x = +key.substring(0, ci);
+      const y = +key.substring(ci + 1);
+      if (x >= 0 && x < w && y >= 0 && y < h) {
+        octx.putImageData(baseImageData, 0, 0, x, y, 1, 1);
+      }
+    }
+  }
+
   // Apply pending pixels
-  for (const key in pending) {
+  for (const key of pendingKeys) {
     const ci = key.indexOf(",");
     const x = +key.substring(0, ci);
     const y = +key.substring(ci + 1);
@@ -117,7 +141,7 @@ function applyPendingToBuffer(
       octx.fillRect(x, y, 1, 1);
     }
   }
-  return new Set(Object.keys(pending));
+  return new Set(pendingKeys);
 }
 
 // ---------------------------------------------------------------------------
@@ -471,6 +495,19 @@ export function Canvas({
     stampPixels: typeof stampOverlayPixels;
     result: { map: Map<string, string>; invalid: boolean } | null;
   } | null>(null);
+  // Move overlay cache: same pattern — avoid O(n) Map rebuild per cell change
+  const moveOverlayCacheRef = useRef<{
+    cellX: number;
+    cellY: number;
+    pixels: typeof movePreviewPixels;
+    result: { map: Map<string, string>; invalid: boolean } | null;
+  } | null>(null);
+  const previewCellRef = useRef(previewCell);
+  previewCellRef.current = previewCell;
+  const movePreviewPixelsRef = useRef(movePreviewPixels);
+  movePreviewPixelsRef.current = movePreviewPixels;
+  const isPreviewDraggingRef = useRef(isPreviewDragging);
+  isPreviewDraggingRef.current = isPreviewDragging;
   const isPaintStrokeRef = useRef(false);
   const lastPaintedCellRef = useRef<{ x: number; y: number } | null>(null);
   const didPaintStrokeRef = useRef(false);
@@ -481,16 +518,33 @@ export function Canvas({
   const MIN_ZOOM = 0.8;
   const MAX_ZOOM = 60;
   const ZOOM_STEP = 1.5;
+  /** Small fixed margin (px) above the finger tip for touch clearance. */
+  const FINGER_MARGIN = 30;
   /** Fraction of cell size (0..0.5) by which pointer must be inside the cell to count for free paint. Reduces accidental diagonal paints. */
   const FREE_PAINT_CELL_INSET = 0.1;
   const [fitScale] = useState(1);
   const PREVIEW_MAX = 120;
   const PREVIEW_MARGIN = 12;
+
+  // Precompute max relative coords of move pixels so we can offset the overlay
+  // such that the bottom-right of the art sits above-left of the finger.
+  const moveBounds = useMemo(() => {
+    if (!movePreviewPixels || movePreviewPixels.length === 0)
+      return { maxX: 0, maxY: 0 };
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of movePreviewPixels) {
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { maxX, maxY };
+  }, [movePreviewPixels]);
+
   const previewPixels = useMemo(() => {
     if (!movePreviewPixels || movePreviewPixels.length === 0) {
       return [];
     }
-    if (!movePreviewActive || !previewCell) {
+    if (!movePreviewActive || !previewCell || isPreviewDragging) {
       return movePreviewPixels;
     }
     return movePreviewPixels.map((px) => {
@@ -499,40 +553,9 @@ export function Canvas({
       const outOfBounds = absX < 0 || absY < 0 || absX >= width || absY >= height;
       return outOfBounds ? { ...px, color: "#ef4444" } : px;
     });
-  }, [height, movePreviewActive, movePreviewPixels, previewCell, width]);
-  const moveOverlay = useMemo(() => {
-    if (
-      !movePreviewActive ||
-      !previewCell ||
-      !movePreviewPixels?.length ||
-      (isCoarsePointer && !isPreviewDragging)
-    ) {
-      return null;
-    }
-    let hasOutOfBounds = false;
-    const map = new Map<string, string>();
-    for (const px of movePreviewPixels) {
-      const absX = previewCell.x + px.x;
-      const absY = previewCell.y + px.y;
-      if (absX < 0 || absY < 0 || absX >= width || absY >= height) {
-        hasOutOfBounds = true;
-        continue;
-      }
-      map.set(`${absX},${absY}`, px.color);
-    }
-    if (map.size === 0) {
-      return null;
-    }
-    return { map, invalid: hasOutOfBounds };
-  }, [
-    height,
-    isCoarsePointer,
-    isPreviewDragging,
-    movePreviewActive,
-    movePreviewPixels,
-    previewCell,
-    width,
-  ]);
+  }, [height, isPreviewDragging, movePreviewActive, movePreviewPixels, previewCell, width]);
+  // moveOverlay is now computed lazily inside the rAF draw callback
+  // (see moveOverlayCacheRef) to avoid O(n) Map rebuilds on every cell change.
   const getDockPosition = useCallback(() => {
     const dockTop = Math.max(
       PREVIEW_MARGIN,
@@ -548,21 +571,12 @@ export function Canvas({
   const previewStyle = useMemo(() => {
     if (isCoarsePointer) {
       const dock = getDockPosition();
-      if (!isPreviewDragging || !previewPos) {
+      if (!isPreviewDragging) {
         return dock;
       }
-      const maxX = Math.max(
-        PREVIEW_MARGIN,
-        containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
-      );
-      const maxY = Math.max(
-        PREVIEW_MARGIN,
-        containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
-      );
-      return {
-        left: clamp(previewPos.x, PREVIEW_MARGIN, maxX),
-        top: clamp(previewPos.y, PREVIEW_MARGIN, maxY),
-      };
+      // During drag, move widget to top-left (opposite of dock which is at right)
+      // so it's not hidden under the finger.
+      return { left: PREVIEW_MARGIN, top: PREVIEW_MARGIN };
     }
     if (!previewPos) {
       return null;
@@ -643,6 +657,16 @@ export function Canvas({
       Math.min(availableWidth / width, availableHeight / height) * fitScale
     );
   }, [containerSize, fitScale, height, width]);
+
+  /** Dynamic offsets: push the overlay so its bottom-right corner clears the finger. */
+  const getTouchOffsetY = useCallback(() => {
+    const step = baseCellSize + CELL_GAP;
+    return (moveBounds.maxY + 1) * step * scaleRef.current + FINGER_MARGIN;
+  }, [baseCellSize, moveBounds.maxY]);
+
+  const getTouchOffsetX = useCallback(() => {
+    return 40;
+  }, []);
 
   const baseSize = useMemo(
     () => ({
@@ -886,8 +910,9 @@ export function Canvas({
     baseCellSize,
     selectedColor,
     highlightedPixels,
-    moveOverlay,
     stampOverlayPixels,
+    movePreviewActive,
+    isCoarsePointer,
     showHoverIndicator: !movePreviewActive && !stampOverlayPixels?.length,
   });
 
@@ -898,8 +923,9 @@ export function Canvas({
       baseCellSize,
       selectedColor,
       highlightedPixels,
-      moveOverlay,
       stampOverlayPixels,
+      movePreviewActive,
+      isCoarsePointer,
       showHoverIndicator: !movePreviewActive && !stampOverlayPixels?.length,
     };
   }, [
@@ -908,8 +934,8 @@ export function Canvas({
     baseCellSize,
     selectedColor,
     highlightedPixels,
-    moveOverlay,
     movePreviewActive,
+    isCoarsePointer,
     stampOverlayPixels,
   ]);
 
@@ -966,6 +992,42 @@ export function Canvas({
       } else {
         stampOverlayCacheRef.current = null;
       }
+      // Move overlay: cached, only rebuild when hover cell or move data changes
+      const mCell = previewCellRef.current;
+      const mPixels = movePreviewPixelsRef.current;
+      let computedMoveOverlay: { map: Map<string, string>; invalid: boolean } | null = null;
+      if (d.movePreviewActive && mCell && mPixels?.length && (!d.isCoarsePointer || isPreviewDraggingRef.current)) {
+        const mc = moveOverlayCacheRef.current;
+        if (
+          mc &&
+          mc.cellX === mCell.x &&
+          mc.cellY === mCell.y &&
+          mc.pixels === mPixels
+        ) {
+          computedMoveOverlay = mc.result;
+        } else {
+          let hasOOB = false;
+          const mMap = new Map<string, string>();
+          for (const px of mPixels) {
+            const ax = mCell.x + px.x;
+            const ay = mCell.y + px.y;
+            if (ax < 0 || ay < 0 || ax >= d.width || ay >= d.height) {
+              hasOOB = true;
+              continue;
+            }
+            mMap.set(`${ax},${ay}`, px.color);
+          }
+          computedMoveOverlay = mMap.size > 0 ? { map: mMap, invalid: hasOOB } : null;
+          moveOverlayCacheRef.current = {
+            cellX: mCell.x,
+            cellY: mCell.y,
+            pixels: mPixels,
+            result: computedMoveOverlay,
+          };
+        }
+      } else {
+        moveOverlayCacheRef.current = null;
+      }
       drawGrid(
         ctx,
         pixelBuffer,
@@ -981,7 +1043,7 @@ export function Canvas({
         canvas.width / dpr,
         canvas.height / dpr,
         d.highlightedPixels,
-        d.moveOverlay,
+        computedMoveOverlay,
         computedStampOverlay,
         d.showHoverIndicator,
       );
@@ -1013,7 +1075,10 @@ export function Canvas({
     baseCellSize,
     selectedColor,
     highlightedPixels,
-    moveOverlay,
+    movePreviewActive,
+    movePreviewPixels,
+    previewCell,
+    isPreviewDragging,
     stampOverlayPixels,
     scheduleRedraw,
   ]);
@@ -1021,7 +1086,7 @@ export function Canvas({
   useEffect(() => {
     if (
       (!highlightedPixels || highlightedPixels.size === 0) &&
-      (!moveOverlay || moveOverlay.map.size === 0)
+      (!movePreviewActive || isPreviewDragging)
     ) {
       return;
     }
@@ -1029,7 +1094,7 @@ export function Canvas({
       scheduleRedraw();
     }, 67);
     return () => clearInterval(intervalId);
-  }, [highlightedPixels, moveOverlay, scheduleRedraw]);
+  }, [highlightedPixels, movePreviewActive, isPreviewDragging, scheduleRedraw]);
 
   useEffect(() => {
     return () => {
@@ -1126,12 +1191,12 @@ export function Canvas({
   }, [zoomTo, setTranslateSafe, deferStateSync]);
 
   const updatePreviewCell = useCallback(
-    (clientX: number, clientY: number) => {
+    (clientX: number, clientY: number, clampToGrid = false) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) {
         return;
       }
-      const cell = hitTest(
+      let cell = hitTest(
         clientX,
         clientY,
         rect,
@@ -1142,6 +1207,17 @@ export function Canvas({
         width,
         height,
       );
+      if (!cell && clampToGrid) {
+        const localX =
+          (clientX - rect.left - translateRef.current.x) / scaleRef.current;
+        const localY =
+          (clientY - rect.top - translateRef.current.y) / scaleRef.current;
+        const step = baseCellSize + CELL_GAP;
+        cell = {
+          x: Math.max(0, Math.min(width - 1, Math.round(localX / step))),
+          y: Math.max(0, Math.min(height - 1, Math.round(localY / step))),
+        };
+      }
       setPreviewCell((prev) => {
         if (!cell) {
           return prev ? null : prev;
@@ -1257,7 +1333,9 @@ export function Canvas({
           if (!previewRafRef.current) {
             previewRafRef.current = requestAnimationFrame(() => {
               previewRafRef.current = null;
-              setPreviewPos(nextPos);
+              setPreviewPos((prev) =>
+                prev?.x === nextPos?.x && prev?.y === nextPos?.y ? prev : nextPos
+              );
             });
           }
         }
@@ -1483,12 +1561,11 @@ export function Canvas({
     if (!previewPos) {
       setPreviewPos({ x: dock.left, y: dock.top });
     }
-    const rect = event.currentTarget.getBoundingClientRect();
-    dragOffsetRef.current = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-    updatePreviewCell(event.clientX, event.clientY);
+    updatePreviewCell(
+      event.clientX - getTouchOffsetX(),
+      event.clientY - getTouchOffsetY(),
+      true,
+    );
   };
 
   const handlePreviewPointerMove = (
@@ -1503,26 +1580,13 @@ export function Canvas({
     }
     event.stopPropagation();
     event.preventDefault();
-    const containerRect = containerRef.current?.getBoundingClientRect();
-    if (!containerRect || !dragOffsetRef.current) {
-      return;
-    }
-    const maxX = Math.max(
-      PREVIEW_MARGIN,
-      containerSize.width - PREVIEW_MAX - PREVIEW_MARGIN,
+    // Widget stays at dock — only update the canvas overlay cell.
+    // Offset so the overlay appears above-left of the finger for visibility.
+    updatePreviewCell(
+      event.clientX - getTouchOffsetX(),
+      event.clientY - getTouchOffsetY(),
+      true,
     );
-    const maxY = Math.max(
-      PREVIEW_MARGIN,
-      containerSize.height - PREVIEW_MAX - PREVIEW_MARGIN,
-    );
-    const nextLeft =
-      event.clientX - containerRect.left - dragOffsetRef.current.x;
-    const nextTop = event.clientY - containerRect.top - dragOffsetRef.current.y;
-    setPreviewPos({
-      x: clamp(nextLeft, PREVIEW_MARGIN, maxX),
-      y: clamp(nextTop, PREVIEW_MARGIN, maxY),
-    });
-    updatePreviewCell(event.clientX, event.clientY);
   };
 
   const handlePreviewPointerUp = (
@@ -1538,13 +1602,14 @@ export function Canvas({
     }
     dragPointerIdRef.current = null;
     dragOffsetRef.current = null;
-    setIsPreviewDragging(false);
     event.currentTarget.releasePointerCapture(event.pointerId);
+    const ofsX = getTouchOffsetX();
+    const ofsY = getTouchOffsetY();
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) {
-      const cell = hitTest(
-        event.clientX,
-        event.clientY,
+      let cell = hitTest(
+        event.clientX - ofsX,
+        event.clientY - ofsY,
         rect,
         translateRef.current,
         scaleRef.current,
@@ -1553,12 +1618,26 @@ export function Canvas({
         width,
         height,
       );
-      if (cell) {
-        setPreviewCell(cell);
-        onPixelClick(cell.x, cell.y);
+      if (!cell) {
+        // Clamp to nearest grid cell so drop always works
+        const localX =
+          (event.clientX - ofsX - rect.left - translateRef.current.x) /
+          scaleRef.current;
+        const localY =
+          (event.clientY - ofsY - rect.top - translateRef.current.y) /
+          scaleRef.current;
+        const step = baseCellSize + CELL_GAP;
+        cell = {
+          x: Math.max(0, Math.min(width - 1, Math.round(localX / step))),
+          y: Math.max(0, Math.min(height - 1, Math.round(localY / step))),
+        };
       }
+      setPreviewCell(cell);
+      onPixelClick(cell.x, cell.y);
     }
-    setPreviewPos(null);
+    // Clear drag state — parent's movePreviewActive=false handles full cleanup
+    // via the "setState during render" pattern. No setPreviewPos(null) needed.
+    setIsPreviewDragging(false);
   };
 
   return (
@@ -1638,7 +1717,7 @@ export function Canvas({
           <div
             className={`absolute ${
               isCoarsePointer ? "pointer-events-auto" : "pointer-events-none"
-            } ${isPreviewDragging ? "opacity-0" : "opacity-100"}`}
+            } transition-all duration-200`}
             style={previewStyle}
             onPointerDown={handlePreviewPointerDown}
             onPointerMove={handlePreviewPointerMove}

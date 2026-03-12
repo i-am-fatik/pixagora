@@ -10,6 +10,7 @@ type StampOptions = {
   defaultName?: string;
   enforceColors?: boolean;
   palette?: string[];
+  onToolActivated?: () => void;
 };
 
 const DEFAULT_STAMP_SRC = "/stamps/urza.png";
@@ -87,6 +88,8 @@ export function useStampTool(options: StampOptions = {}) {
 
   const enforceColors = options.enforceColors ?? false;
   const palette = options.palette;
+  const onToolActivatedRef = useRef(options.onToolActivated);
+  onToolActivatedRef.current = options.onToolActivated;
 
   // Pre-parse palette for fast nearest-color lookup
   const parsedPaletteRef = useRef<{ r: number; g: number; b: number; hex: string }[] | null>(null);
@@ -237,6 +240,7 @@ export function useStampTool(options: StampOptions = {}) {
       setStampSrc(nextUrl);
       setStampName(file.name);
       setTool("stamp");
+      onToolActivatedRef.current?.();
     },
     [],
   );
