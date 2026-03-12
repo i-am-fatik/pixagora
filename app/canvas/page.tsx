@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useReducer,
@@ -29,13 +30,17 @@ import { StampToolControls } from "./StampToolControls";
 import { useSnapshotLoader, packedToHex } from "./useSnapshotLoader";
 import { usePriceMap } from "./usePriceMap";
 import type { ActiveTool } from "./toolbar.types";
+import { fixConvexUrl } from "./fixConvexUrl";
 
 const STARTOVAC_URL = "https://www.startovac.cz/projekty/anarchoagorismus/";
 const EMPTY_PIXEL_MAP = new Map<string, string>();
 const EMPTY_PENDING: Record<string, string> = {};
+const WHITE_PACKED = 0xffffffff;
 
-
-import { fixConvexUrl } from "./fixConvexUrl";
+/** Convert "#rrggbb" hex to packed 0xFF_RR_GG_BB (case-insensitive). */
+function hexToPacked(hex: string): number {
+  return 0xff000000 | parseInt(hex.charAt(0) === "#" ? hex.substring(1) : hex, 16);
+}
 
 type PendingChange = {
   key?: string;
@@ -640,12 +645,12 @@ export default function CanvasPage() {
   // ---------------------------------------------------------------------------
   const _snapshotLookup = useCallback(
     (key: string): { packed: number } | undefined => {
-      if (!snapshotPixelData) return undefined;
+      if (!snapshotPixelData) {return undefined;}
       const ci = key.indexOf(",");
       const x = +key.substring(0, ci);
       const y = +key.substring(ci + 1);
       const idx = y * snapshotPixelData.width + x;
-      if (idx < 0 || idx >= snapshotPixelData.pixels.length) return undefined;
+      if (idx < 0 || idx >= snapshotPixelData.pixels.length) {return undefined;}
       const packed = snapshotPixelData.pixels[idx];
       return packed !== 0 ? { packed } : undefined;
     },
@@ -657,9 +662,21 @@ export default function CanvasPage() {
   const getBaseColor = useCallback(
     (key: string): string | undefined => {
       const overlayColor = overlayPixels.get(key);
-      if (overlayColor !== undefined) return overlayColor;
+      if (overlayColor !== undefined) {return overlayColor;}
       const hit = _snapshotLookup(key);
       return hit ? packedToHex(hit.packed) : undefined;
+    },
+    [overlayPixels, _snapshotLookup],
+  );
+
+  /** Get base color as packed uint32 (WHITE_PACKED for empty).
+   *  Avoids packedToHex string allocations in the hot painting path. */
+  const _getBasePacked = useCallback(
+    (key: string): number => {
+      const overlayColor = overlayPixels.get(key);
+      if (overlayColor !== undefined) return hexToPacked(overlayColor);
+      const hit = _snapshotLookup(key);
+      return hit ? hit.packed : WHITE_PACKED;
     },
     [overlayPixels, _snapshotLookup],
   );
@@ -667,7 +684,7 @@ export default function CanvasPage() {
   /** Check if a pixel exists in base data (overlay or snapshot). */
   const hasBasePixel = useCallback(
     (key: string): boolean => {
-      if (overlayPixels.has(key)) return true;
+      if (overlayPixels.has(key)) {return true;}
       return _snapshotLookup(key) !== undefined;
     },
     [overlayPixels, _snapshotLookup],
@@ -1000,13 +1017,13 @@ export default function CanvasPage() {
         for (let dx = -half; dx < brushSize - half; dx++) {
           const px = x + dx;
           const py = y + dy;
-          if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) continue;
+          if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) {continue;}
           const key = `${px},${py}`;
           const baseColor = getBaseColor(key) ?? "#ffffff";
           const visibleColor = (
             pendingState.pending[key] ?? baseColor
           ).toLowerCase();
-          if (selectedColor.toLowerCase() === visibleColor) continue;
+          if (selectedColor.toLowerCase() === visibleColor) {continue;}
           const nextPending =
             selectedColor.toLowerCase() === baseColor.toLowerCase()
               ? undefined
@@ -1020,46 +1037,37 @@ export default function CanvasPage() {
     }
   };
 
-  const handleFreePaint = (x: number, y: number) => {
-    if (activeTool !== "paint") {
-      return;
-    }
+  const handleFreePaintBatch = (points: { x: number; y: number }[]) => {
+    if (activeTool !== "paint") {return;}
+
     const half = Math.floor(brushSize / 2);
-    if (brushSize <= 1) {
-      const key = `${x},${y}`;
-      const baseColor = getBaseColor(key) ?? "#ffffff";
-      const visibleColor = (
-        pendingState.pending[key] ?? baseColor
-      ).toLowerCase();
-      if (selectedColor.toLowerCase() === visibleColor) return;
-      const nextPending =
-        selectedColor.toLowerCase() === baseColor.toLowerCase()
-          ? undefined
-          : selectedColor;
-      dispatch({ type: "apply", key, nextPending });
-    } else {
-      const changes: { key: string; nextPending?: string }[] = [];
+    const selLower = selectedColor.toLowerCase();
+    const changes: { key: string; nextPending?: string }[] = [];
+    const seen = new Set<string>();
+
+    for (const { x, y } of points) {
       for (let dy = -half; dy < brushSize - half; dy++) {
         for (let dx = -half; dx < brushSize - half; dx++) {
           const px = x + dx;
           const py = y + dy;
-          if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) continue;
+          if (px < 0 || py < 0 || px >= gridWidth || py >= gridHeight) {continue;}
           const key = `${px},${py}`;
+          if (seen.has(key)) {continue;}
+          seen.add(key);
           const baseColor = getBaseColor(key) ?? "#ffffff";
           const visibleColor = (
             pendingState.pending[key] ?? baseColor
           ).toLowerCase();
-          if (selectedColor.toLowerCase() === visibleColor) continue;
+          if (selLower === visibleColor) {continue;}
           const nextPending =
-            selectedColor.toLowerCase() === baseColor.toLowerCase()
-              ? undefined
-              : selectedColor;
+            selLower === baseColor.toLowerCase() ? undefined : selectedColor;
           changes.push({ key, nextPending });
         }
       }
-      if (changes.length > 0) {
-        dispatch({ type: "applyBatch", changes });
-      }
+    }
+
+    if (changes.length > 0) {
+      dispatch({ type: "applyBatch", changes });
     }
   };
 
@@ -1077,7 +1085,7 @@ export default function CanvasPage() {
       if (next === "move") {
         const ep = rawPendingRef.current;
         const keys = Object.keys(ep);
-        if (keys.length === 0) return prev;
+        if (keys.length === 0) {return prev;}
         const pixels = keys.map((key) => {
           const [x, y] = key.split(",").map(Number);
           return { x, y, color: ep[key] };
@@ -1315,9 +1323,9 @@ export default function CanvasPage() {
                           handlePixelClick(x, y);
                         }
                       }}
-                      onFreePaint={(x, y) => {
+                      onFreePaintBatch={(points) => {
                         if (index === activeReelIndex) {
-                          handleFreePaint(x, y);
+                          handleFreePaintBatch(points);
                         }
                       }}
                       movePreviewPixels={

@@ -24,13 +24,13 @@ function parseArgs(argv) {
 }
 
 function loadEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return;
+  if (!fs.existsSync(filePath)) {return;}
   const content = fs.readFileSync(filePath, "utf8");
   for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (!trimmed || trimmed.startsWith("#")) {continue;}
     const idx = trimmed.indexOf("=");
-    if (idx === -1) continue;
+    if (idx === -1) {continue;}
     const key = trimmed.slice(0, idx).trim();
     let value = trimmed.slice(idx + 1).trim();
     if (
@@ -47,18 +47,18 @@ function loadEnvFile(filePath) {
 
 function normalizeHex(value) {
   const trimmed = value.trim().toLowerCase();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("#")) return trimmed;
+  if (!trimmed) {return null;}
+  if (trimmed.startsWith("#")) {return trimmed;}
   return `#${trimmed}`;
 }
 
 function hexToRgb(hex) {
   const normalized = hex.startsWith("#") ? hex.slice(1) : hex;
-  if (normalized.length !== 6) return null;
+  if (normalized.length !== 6) {return null;}
   const r = Number.parseInt(normalized.slice(0, 2), 16);
   const g = Number.parseInt(normalized.slice(2, 4), 16);
   const b = Number.parseInt(normalized.slice(4, 6), 16);
-  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {return null;}
   return { r, g, b };
 }
 
@@ -366,7 +366,7 @@ async function main() {
 
   for (let i = 0; i < batches.length; i += 1) {
     const batch = batches[i];
-    if (batch.length === 0) continue;
+    if (batch.length === 0) {continue;}
     console.log(`Committing batch ${i + 1}/${batches.length}...`);
     await client.mutation("pixels:commit", {
       token,

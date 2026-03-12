@@ -112,7 +112,7 @@ export const multiplyAllCredits = internalMutation({
     let updated = 0;
     for (const user of users) {
       const current = await computeCredits(ctx, user._id);
-      if (current <= 0) continue;
+      if (current <= 0) {continue;}
       const bonus = current * (MULTIPLIER - 1);
       await ctx.db.insert("payments", {
         userId: user._id,

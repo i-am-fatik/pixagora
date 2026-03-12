@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   Bitcoin,
@@ -426,7 +426,7 @@ function ChatPanel({
       return;
     }
     setPreviewCommitId((prev) => {
-      if (prev === commitId) return null;
+      if (prev === commitId) {return null;}
       if (buttonEl && scrollRefForPreview.current) {
         const scrollRect = scrollRefForPreview.current.getBoundingClientRect();
         const buttonRect = buttonEl.getBoundingClientRect();
@@ -615,6 +615,7 @@ function ChatPanel({
                               Náhled není dostupný.
                             </div>
                           ) : previewData?.previewUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={fixConvexUrl(previewData.previewUrl)}
                               alt="Náhled commitu"

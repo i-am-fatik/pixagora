@@ -81,8 +81,8 @@ function ReplayPageInner() {
   const rafHandleRef = useRef(0);
   const stepIndexRef = useRef(0);
   const pixelOffsetRef = useRef(0);
-  stepIndexRef.current = stepIndex;
-  pixelOffsetRef.current = pixelOffset;
+  useEffect(() => { stepIndexRef.current = stepIndex; });
+  useEffect(() => { pixelOffsetRef.current = pixelOffset; });
 
 
 
@@ -103,7 +103,7 @@ function ReplayPageInner() {
     let cancelled = false;
 
     function tick(timestamp: number) {
-      if (cancelled) return;
+      if (cancelled) {return;}
 
       if (lastTimestamp === null) {
         lastTimestamp = timestamp;

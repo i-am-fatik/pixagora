@@ -26,9 +26,6 @@ type CanvasReelsProps = {
   onIndexChange?: (index: number) => void;
 };
 
-const HINT_STORAGE_KEY = "pixagora-reels-hint-dismissed";
-const HINT_DELAY_MS = 1800;
-
 export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   function CanvasReels(
     {
@@ -43,34 +40,15 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     const safeIndex = Math.max(0, Math.min(count - 1, initialIndex));
     return Number.isFinite(safeIndex) ? safeIndex : 0;
   });
-  const [dragOffset, setDragOffset] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
   const [containerHeight, setContainerHeight] = useState(0);
-  const [hintDismissed, setHintDismissed] = useState(() => {
-    if (typeof window === "undefined") { return false; }
-    try {
-      return window.localStorage.getItem(HINT_STORAGE_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [hintTimerDone, setHintTimerDone] = useState(false);
-  const startYRef = useRef(0);
   const activeIndexRef = useRef(activeIndex);
-  const dragOffsetRef = useRef(0);
-  const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const heightRef = useRef(0);
 
   const hasMultiple = count > 1;
-  const touchEnabled = false;
 
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
-
-  const getHeight = useCallback(() => {
-    return heightRef.current || containerRef.current?.clientHeight || containerHeight || 1;
-  }, [containerHeight]);
 
   const updateIndex = useCallback(
     (nextIndex: number) => {
@@ -84,14 +62,6 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   useEffect(() => {
     activeIndexRef.current = activeIndex;
   }, [activeIndex]);
-
-  useEffect(() => {
-    dragOffsetRef.current = dragOffset;
-  }, [dragOffset]);
-
-  useEffect(() => {
-    isDraggingRef.current = isDragging;
-  }, [isDragging]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -114,68 +84,11 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     setActiveIndex(Math.max(0, count - 1));
   }
 
-  useEffect(() => {
-    if (!hasMultiple || hintDismissed) { return; }
-    const timeoutId = window.setTimeout(() => {
-      setHintTimerDone(true);
-    }, HINT_DELAY_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [hasMultiple, hintDismissed]);
-
-  const setOffset = (value: number) => {
-    dragOffsetRef.current = value;
-    setDragOffset(value);
-  };
-
-  const setDragging = (value: boolean) => {
-    isDraggingRef.current = value;
-    setIsDragging(value);
-  };
-
-  const handleStart = (clientY: number) => {
-    startYRef.current = clientY;
-    setOffset(0);
-    setDragging(true);
-  };
-
-  const handleMove = (clientY: number) => {
-    if (!isDraggingRef.current) {
-      return;
-    }
-    const delta = clientY - startYRef.current;
-    const height = getHeight();
-    setOffset(clamp(delta, -height * 0.6, height * 0.6));
-  };
-
-  const handleEnd = useCallback(() => {
-    if (!isDraggingRef.current) {
-      return;
-    }
-    const height = getHeight();
-    const threshold = Math.max(60, height * 0.12);
-    if (Math.abs(dragOffsetRef.current) >= threshold) {
-      const direction = dragOffsetRef.current < 0 ? 1 : -1;
-      updateIndex(activeIndexRef.current + direction);
-    }
-    setOffset(0);
-    setDragging(false);
-  }, [getHeight, updateIndex]);
-
   const goToIndex = useCallback(
     (nextIndex: number) => {
-      setOffset(0);
-      setDragging(false);
       updateIndex(nextIndex);
-      if (!hintDismissed && nextIndex !== 0) {
-        setHintDismissed(true);
-        try {
-          window.localStorage.setItem(HINT_STORAGE_KEY, "1");
-        } catch {
-          // ignore storage access errors
-        }
-      }
     },
-    [updateIndex, hintDismissed],
+    [updateIndex],
   );
 
   useImperativeHandle(
@@ -221,7 +134,7 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
   }, [goToIndex, hasMultiple]);
 
   const height = containerHeight || 1;
-  const baseTranslate = -(activeIndex * height) + dragOffset;
+  const baseTranslate = -(activeIndex * height);
   const clampedTranslate = clamp(baseTranslate, -height * (count - 1), 0);
   const translate = `translateY(${clampedTranslate}px)`;
   const reelLabel = useMemo(
@@ -237,22 +150,10 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
     goToIndex(nextIndex > count - 1 ? 0 : nextIndex);
   };
 
-  const touchHandlers = touchEnabled
-    ? {
-        onTouchStart: (event: React.TouchEvent<HTMLDivElement>) =>
-          handleStart(event.touches[0]?.clientY ?? 0),
-        onTouchMove: (event: React.TouchEvent<HTMLDivElement>) =>
-          handleMove(event.touches[0]?.clientY ?? 0),
-        onTouchEnd: handleEnd,
-        onTouchCancel: handleEnd,
-      }
-    : {};
-
   return (
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden touch-none select-none ${isDragging ? "cursor-move" : "cursor-pointer"}`}
-      {...touchHandlers}
+      className="relative h-full w-full overflow-hidden touch-none select-none cursor-pointer"
     >
       <button
         type="button"
@@ -297,24 +198,8 @@ export const CanvasReels = forwardRef<CanvasReelsHandle, CanvasReelsProps>(
         </div>
       )}
 
-      {touchEnabled && hintTimerDone && hasMultiple && activeIndex === 0 && !hintDismissed && (
-        <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full bg-background/65 px-3 py-2 text-[11px] font-medium text-muted-foreground shadow-sm md:hidden">
-          <div className="flex flex-col items-center leading-none text-muted-foreground/80">
-            <ChevronUp
-              className="h-4 w-4 reels-hint-arrow"
-              style={{ animationDelay: "0ms" }}
-            />
-            <ChevronUp
-              className="-mt-1 h-4 w-4 reels-hint-arrow"
-              style={{ animationDelay: "200ms" }}
-            />
-          </div>
-          <span className="text-muted-foreground/80">Potáhněte pro další plátno</span>
-        </div>
-      )}
-
       <div
-        className={`flex h-full w-full flex-col ${isDragging ? "" : "transition-transform duration-300 ease-out"}`}
+        className="flex h-full w-full flex-col transition-transform duration-300 ease-out"
         style={{ transform: translate }}
       >
         {Array.from({ length: count }).map((_, index) => (

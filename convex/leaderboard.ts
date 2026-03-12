@@ -53,8 +53,8 @@ export const getData = query({
         .withIndex("by_user", (q) => q.eq("userId", u._id))
         .collect();
       let count = 0;
-      for (const tx of txs) count += tx.changes.length;
-      if (count > 0) computedCounts.set(u._id as string, count);
+      for (const tx of txs) {count += tx.changes.length;}
+      if (count > 0) {computedCounts.set(u._id as string, count);}
     }
 
     const entries = users
@@ -62,7 +62,7 @@ export const getData = query({
       .map((u) => {
         const count =
           u.totalPixelCount ?? computedCounts.get(u._id as string) ?? 0;
-        if (count <= 0) return null;
+        if (count <= 0) {return null;}
         return {
           userId: u._id,
           count,

@@ -6,7 +6,7 @@
  */
 export function fixConvexUrl(url: string): string {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) return url;
+  if (!convexUrl) {return url;}
   try {
     const u = new URL(url);
     const base = new URL(convexUrl);

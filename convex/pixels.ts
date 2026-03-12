@@ -1,7 +1,7 @@
-import { query, mutation, internalMutation, internalQuery, MutationCtx } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { Doc, Id } from "./_generated/dataModel";
+import { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { nextPixelPrice, OWNERSHIP_CONFLICT_MSG } from "./pricing";
 import { computeCredits, computeTotalPaidCzk } from "./credits";
@@ -109,49 +109,6 @@ export const getPixelsDelta = query({
   },
 });
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function maybeCreateNextCanvas(
-  ctx: MutationCtx,
-  canvas: Doc<"canvases">,
-) {
-  const totalCells = canvas.width * canvas.height;
-  if (totalCells <= 0) {
-    return;
-  }
-
-  const pixelCount = (
-    await ctx.db
-      .query("pixels")
-      .withIndex("by_canvas_xy", (q) => q.eq("canvasId", canvas._id))
-      .collect()
-  ).length;
-
-  const fillRatio = pixelCount / totalCells;
-  if (fillRatio < (canvas.unlockThreshold ?? 0.8)) {
-    return;
-  }
-
-  const nextOrder = canvas.order + 1;
-  const existing = await ctx.db
-    .query("canvases")
-    .withIndex("by_order", (q) => q.eq("order", nextOrder))
-    .unique();
-  if (existing) {
-    return;
-  }
-
-  const nextNumber = nextOrder + 1;
-  await ctx.db.insert("canvases", {
-    name: `PixAgora #${nextNumber}`,
-    width: canvas.width,
-    height: canvas.height,
-    colors: canvas.colors,
-    pixelPrice: canvas.pixelPrice,
-    unlockThreshold: canvas.unlockThreshold,
-    order: nextOrder,
-    createdAt: Date.now(),
-  });
-}
 
 function parseHex(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -409,9 +366,6 @@ export const commit = mutation({
       commitActorName,
       commitActorEmail,
     });
-
-    // auto-creating new canvases OFF
-    // await maybeCreateNextCanvas(ctx, canvas);
 
     // Schedule snapshot regeneration (async, doesn't block response)
     await ctx.scheduler.runAfter(0, internal.snapshot.generate, { canvasId });

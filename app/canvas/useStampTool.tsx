@@ -186,7 +186,7 @@ export function useStampTool(options: StampOptions = {}) {
         const blob = await response.blob();
         if ("createImageBitmap" in window) {
           const bitmap = await createImageBitmap(blob);
-          if (cancelled) return;
+          if (cancelled) {return;}
           renderStamp(bitmap);
           return;
         }
@@ -195,18 +195,18 @@ export function useStampTool(options: StampOptions = {}) {
         img.decoding = "async";
         img.onload = () => {
           URL.revokeObjectURL(url);
-          if (cancelled) return;
+          if (cancelled) {return;}
           renderStamp(img);
         };
         img.onerror = () => {
           URL.revokeObjectURL(url);
-          if (cancelled) return;
+          if (cancelled) {return;}
           setStampError("Stamp image failed to load");
           setStampReady(false);
         };
         img.src = url;
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled) {return;}
         setStampError(
           `Stamp load error: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -218,7 +218,7 @@ export function useStampTool(options: StampOptions = {}) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [stampSrc, stampSize, enforceColors, palette]);
 
   const handleFileChange = useCallback(

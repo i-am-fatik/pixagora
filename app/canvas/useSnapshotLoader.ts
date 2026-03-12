@@ -43,7 +43,7 @@ const MAX_CACHED = 6;
 const snapshotCache = new Map<string, CachedSnapshot>();
 
 function evictOldest() {
-  if (snapshotCache.size <= MAX_CACHED) return;
+  if (snapshotCache.size <= MAX_CACHED) {return;}
   const firstKey = snapshotCache.keys().next().value;
   if (firstKey !== undefined) {
     const entry = snapshotCache.get(firstKey);
@@ -148,7 +148,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
     (async () => {
       try {
         const response = await fetch(url);
-        if (!response.ok) throw new Error(`Snapshot fetch failed: ${response.status}`);
+        if (!response.ok) {throw new Error(`Snapshot fetch failed: ${response.status}`);}
         const blob = await response.blob();
         const bitmap = await createImageBitmap(blob);
 
@@ -164,7 +164,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
         const h = bitmap.height;
         const offscreen = new OffscreenCanvas(w, h);
         const ctx = offscreen.getContext("2d");
-        if (!ctx) throw new Error("Failed to get 2d context");
+        if (!ctx) {throw new Error("Failed to get 2d context");}
         ctx.drawImage(bitmap, 0, 0);
         const imageData = ctx.getImageData(0, 0, w, h);
         const data = imageData.data;
@@ -172,7 +172,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
         const pixels = new Uint32Array(len);
         for (let i = 0; i < len; i++) {
           const idx = i * 4;
-          if (data[idx + 3] < 128) continue;
+          if (data[idx + 3] < 128) {continue;}
           pixels[i] = 0xff000000 | (data[idx] << 16) | (data[idx + 1] << 8) | data[idx + 2];
         }
         const pixelData: SnapshotPixelData = { pixels, width: w, height: h };
@@ -182,7 +182,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
         if (targetCanvasId) {
           const currentCreatedAt = stateRef.current.createdAt ?? knownCreatedAt ?? 0;
           const old = snapshotCache.get(targetCanvasId);
-          if (old && old.bitmap !== bitmap) old.bitmap.close();
+          if (old && old.bitmap !== bitmap) {old.bitmap.close();}
           snapshotCache.set(targetCanvasId, { pixelData, bitmap, createdAt: currentCreatedAt, url });
           evictOldest();
         }
@@ -195,18 +195,18 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
 
   // ── Eager fetch: single HTTP request on mount, no WS needed ──
   useEffect(() => {
-    if (eagerStartedRef.current) return;
+    if (eagerStartedRef.current) {return;}
     const preloadUrl = typeof window !== "undefined" ? window.__SNAPSHOT_PRELOAD_URL__ : undefined;
-    if (!preloadUrl) return;
+    if (!preloadUrl) {return;}
     eagerStartedRef.current = true;
     delete window.__SNAPSHOT_PRELOAD_URL__;
     fetchAndDecode(preloadUrl, null, null, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // ── WS enrichment: createdAt, canvas switches, snapshot changes ──
   useEffect(() => {
-    if (!canvasId) return;
+    if (!canvasId) {return;}
     const canvasIdStr = canvasId as string;
 
     // Canvas switch: check cache or reset stale state
@@ -222,18 +222,18 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
       dispatch({ type: "reset" });
     }
 
-    if (snapshotData === undefined) return;
+    if (snapshotData === undefined) {return;}
 
     if (snapshotData === null) {
       const nullKey = `${canvasIdStr}:null`;
-      if (wsProcessedForRef.current === nullKey) return;
+      if (wsProcessedForRef.current === nullKey) {return;}
       wsProcessedForRef.current = nullKey;
       dispatch({ type: "ws_no_snapshot" });
       return;
     }
 
     const snapshotKey = `${canvasIdStr}:${snapshotData.createdAt}`;
-    if (wsProcessedForRef.current === snapshotKey) return;
+    if (wsProcessedForRef.current === snapshotKey) {return;}
 
     const isNewVersion = wsProcessedForRef.current !== null;
     const current = stateRef.current;
@@ -260,7 +260,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
       // Write eager-loaded bitmap to cache under the now-known canvasId
       if (current.pixelData && current.bitmap) {
         const old = snapshotCache.get(canvasIdStr);
-        if (old && old.bitmap !== current.bitmap) old.bitmap.close();
+        if (old && old.bitmap !== current.bitmap) {old.bitmap.close();}
         snapshotCache.set(canvasIdStr, {
           pixelData: current.pixelData,
           bitmap: current.bitmap,
@@ -282,7 +282,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
         current.phase !== "idle",
       );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [canvasId, snapshotData]);
 
   const snapshotReady =
@@ -296,7 +296,6 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
     snapshotPixelData: state.pixelData,
     snapshotBitmap: state.bitmap,
     snapshotReady,
-    snapshotLoading: state.phase === "loading",
     snapshotCreatedAt: state.createdAt,
   };
 }

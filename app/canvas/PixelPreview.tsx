@@ -19,7 +19,7 @@ function computeLayout(
   pixels: { x: number; y: number; color: string }[],
   maxSize: number,
 ): GridLayout | null {
-  if (pixels.length === 0) return null;
+  if (pixels.length === 0) {return null;}
 
   let minX = Infinity;
   let minY = Infinity;
@@ -27,10 +27,10 @@ function computeLayout(
   let maxY = -Infinity;
 
   for (const p of pixels) {
-    if (p.x < minX) minX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y > maxY) maxY = p.y;
+    if (p.x < minX) {minX = p.x;}
+    if (p.y < minY) {minY = p.y;}
+    if (p.x > maxX) {maxX = p.x;}
+    if (p.y > maxY) {maxY = p.y;}
   }
 
   const width = maxX - minX + 1 + 2;
@@ -58,7 +58,7 @@ function drawPreview(
   }
 
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) {return;}
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvasW, canvasH);
@@ -85,11 +85,11 @@ export const PixelPreview = memo(function PixelPreview({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !layout) return;
+    if (!canvas || !layout) {return;}
     drawPreview(canvas, pixels, layout);
   }, [pixels, layout]);
 
-  if (!layout) return null;
+  if (!layout) {return null;}
 
   // Canvas resolution (integer pixels, no fractional rendering)
   const canvasW = layout.width * layout.cell;

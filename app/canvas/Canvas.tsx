@@ -76,7 +76,7 @@ function buildPixelBuffer(
     const ci = key.indexOf(",");
     const x = +key.substring(0, ci);
     const y = +key.substring(ci + 1);
-    if (x < 0 || x >= w || y < 0 || y >= h) return;
+    if (x < 0 || x >= w || y < 0 || y >= h) {return;}
     const hex = color.charAt(0) === "#" ? color.substring(1) : color;
     const num = parseInt(hex, 16);
     const idx = (y * w + x) * 4;
@@ -109,7 +109,7 @@ function applyPendingToBuffer(
     for (const key of prevKeys) {
       if (!(key in pending)) {
         removedCount++;
-        if (removedCount > BULK_RESTORE_THRESHOLD) break;
+        if (removedCount > BULK_RESTORE_THRESHOLD) {break;}
       }
     }
   }
@@ -121,7 +121,7 @@ function applyPendingToBuffer(
   } else {
     // Incremental path: restore only removed pixels
     for (const key of prevKeys) {
-      if (key in pending) continue;
+      if (key in pending) {continue;}
       const ci = key.indexOf(",");
       const x = +key.substring(0, ci);
       const y = +key.substring(ci + 1);
@@ -201,7 +201,7 @@ function drawGrid(
       const ci = key.indexOf(",");
       const x = +key.substring(0, ci);
       const y = +key.substring(ci + 1);
-      if (x < startX || x >= endX || y < startY || y >= endY) return;
+      if (x < startX || x >= endX || y < startY || y >= endY) {return;}
       ctx.fillStyle = moveOverlay.invalid ? "#ef4444" : color;
       ctx.fillRect(x * step, y * step, cellSize, cellSize);
     });
@@ -211,11 +211,11 @@ function drawGrid(
   if (stampOverlay && stampOverlay.map.size > 0) {
     ctx.globalAlpha = stampOverlay.invalid ? 0.5 : 0.7;
     stampOverlay.map.forEach((color, key) => {
-      if (moveOverlay?.map.has(key)) return;
+      if (moveOverlay?.map.has(key)) {return;}
       const ci = key.indexOf(",");
       const x = +key.substring(0, ci);
       const y = +key.substring(ci + 1);
-      if (x < startX || x >= endX || y < startY || y >= endY) return;
+      if (x < startX || x >= endX || y < startY || y >= endY) {return;}
       ctx.fillStyle = stampOverlay.invalid ? "#ef4444" : color;
       ctx.fillRect(x * step, y * step, cellSize, cellSize);
     });
@@ -300,7 +300,7 @@ function drawGrid(
       const ci = key.indexOf(",");
       const x = +key.substring(0, ci);
       const y = +key.substring(ci + 1);
-      if (x < startX || x >= endX || y < startY || y >= endY) return;
+      if (x < startX || x >= endX || y < startY || y >= endY) {return;}
       const px = x * step;
       const py = y * step;
       const bx = px + inset;
@@ -494,7 +494,7 @@ export function Canvas({
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
   const pixelDirtyRef = useRef(true);
   const pendingPixelsRef = useRef(pendingPixels);
-  pendingPixelsRef.current = pendingPixels;
+  useEffect(() => { pendingPixelsRef.current = pendingPixels; });
   // Stamp overlay cache: avoid rebuilding Map every frame
   const stampOverlayCacheRef = useRef<{
     hoverX: number;
@@ -510,11 +510,11 @@ export function Canvas({
     result: { map: Map<string, string>; invalid: boolean } | null;
   } | null>(null);
   const previewCellRef = useRef(previewCell);
-  previewCellRef.current = previewCell;
+  useEffect(() => { previewCellRef.current = previewCell; });
   const movePreviewPixelsRef = useRef(movePreviewPixels);
-  movePreviewPixelsRef.current = movePreviewPixels;
+  useEffect(() => { movePreviewPixelsRef.current = movePreviewPixels; });
   const isPreviewDraggingRef = useRef(isPreviewDragging);
-  isPreviewDraggingRef.current = isPreviewDragging;
+  useEffect(() => { isPreviewDraggingRef.current = isPreviewDragging; });
   const isPaintStrokeRef = useRef(false);
   const lastPaintedCellRef = useRef<{ x: number; y: number } | null>(null);
   const didPaintStrokeRef = useRef(false);
@@ -543,16 +543,16 @@ export function Canvas({
   // Precompute bounding box of preview pixels for offset calculations and sizing.
   const previewBounds = useMemo(() => {
     if (!activePreviewPixels || activePreviewPixels.length === 0)
-      return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+      {return { minX: 0, minY: 0, maxX: 0, maxY: 0 };}
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
     for (const p of activePreviewPixels) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
+      if (p.x < minX) {minX = p.x;}
+      if (p.y < minY) {minY = p.y;}
+      if (p.x > maxX) {maxX = p.x;}
+      if (p.y > maxY) {maxY = p.y;}
     }
     return { minX, minY, maxX, maxY };
   }, [activePreviewPixels]);
@@ -717,7 +717,7 @@ export function Canvas({
   // Incremental pending update (runs per paint — only touches changed pixels)
   useEffect(() => {
     const offscreen = pixelBufferRef.current;
-    if (!offscreen) return;
+    if (!offscreen) {return;}
     // Lazy-init baseImageData on first paint (deferred from bitmap fast path)
     if (!baseImageDataRef.current) {
       const octx = offscreen.getContext("2d");
@@ -726,7 +726,7 @@ export function Canvas({
       }
     }
     const baseData = baseImageDataRef.current;
-    if (!baseData) return;
+    if (!baseData) {return;}
     appliedPendingKeysRef.current = applyPendingToBuffer(
       offscreen, baseData, pendingPixels, appliedPendingKeysRef.current, width, height,
     );
@@ -1114,7 +1114,7 @@ export function Canvas({
     });
   }, []);
 
-  scheduleRedrawRef.current = scheduleRedraw;
+  useEffect(() => { scheduleRedrawRef.current = scheduleRedraw; });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1465,13 +1465,18 @@ export function Canvas({
         );
         const last = lastPaintedCellRef.current;
         if (cell && (last?.x !== cell.x || last?.y !== cell.y)) {
-          if (last) {
+          if (onFreePaintBatch) {
+            const points = last
+              ? lineCells(last.x, last.y, cell.x, cell.y)
+              : [cell];
+            onFreePaintBatch(points);
+          } else if (last) {
             const gap = lineCells(last.x, last.y, cell.x, cell.y);
             for (const g of gap) {
-              (onFreePaint ?? onPixelClick)(g.x, g.y);
+              onPixelClick(g.x, g.y);
             }
           } else {
-            (onFreePaint ?? onPixelClick)(cell.x, cell.y);
+            onPixelClick(cell.x, cell.y);
           }
           lastPaintedCellRef.current = cell;
         }
