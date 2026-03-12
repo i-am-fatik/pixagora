@@ -17,6 +17,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { PixelPreview } from "./PixelPreview";
 import { StartovacLogo } from "./StartovacLogo";
+import { fixConvexUrl } from "./fixConvexUrl";
 
 type ChatWidgetProps = {
   isLoggedIn: boolean;
@@ -615,7 +616,7 @@ function ChatPanel({
                             </div>
                           ) : previewData?.previewUrl ? (
                             <img
-                              src={previewData.previewUrl}
+                              src={fixConvexUrl(previewData.previewUrl)}
                               alt="Náhled commitu"
                               className="max-w-[200px] max-h-[200px] rounded-lg bg-white"
                               style={{ imageRendering: "pixelated" }}

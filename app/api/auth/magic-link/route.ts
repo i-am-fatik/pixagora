@@ -8,14 +8,20 @@ function buildConvexHttpUrl(path: string): string | null {
     return null;
   }
   const trimmed = CONVEX_SITE_URL.replace(/\/$/, "");
-  const isLocal =
-    trimmed.startsWith("http://127.0.0.1") ||
-    trimmed.startsWith("http://localhost") ||
-    trimmed.startsWith("https://127.0.0.1") ||
-    trimmed.startsWith("https://localhost");
+  // Skip /http suffix for direct access (localhost, private IPs, or explicit port).
+  // Cloud Convex deployments use /http prefix on the shared domain;
+  // local/self-hosted deployments have a dedicated site-proxy port.
+  const url = new URL(trimmed);
+  const isDirect =
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "localhost" ||
+    url.hostname.startsWith("10.") ||
+    url.hostname.startsWith("100.") ||
+    url.hostname.startsWith("192.168.") ||
+    url.port !== "";
   const base = trimmed.endsWith("/http")
     ? trimmed
-    : isLocal
+    : isDirect
       ? trimmed
       : `${trimmed}/http`;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -69,6 +75,24 @@ export async function POST(req: NextRequest) {
   const text = await res.text();
   try {
     const data = JSON.parse(text);
+    // Rewrite devLoginUrl origin to match the caller's origin
+    // so the link works on whatever host the user is accessing.
+    if (data.devLoginUrl) {
+      const callerOrigin =
+        req.headers.get("origin") ||
+        (req.headers.get("host")
+          ? `${req.nextUrl.protocol}//${req.headers.get("host")}`
+          : null);
+      if (callerOrigin) {
+        try {
+          const devUrl = new URL(data.devLoginUrl);
+          const base = new URL(callerOrigin);
+          devUrl.protocol = base.protocol;
+          devUrl.host = base.host;
+          data.devLoginUrl = devUrl.toString();
+        } catch { /* keep original */ }
+      }
+    }
     return NextResponse.json(data, { status: res.status });
   } catch {
     console.error("Convex returned non-JSON:", res.status, text.slice(0, 500));
