@@ -55,12 +55,12 @@ export function StampToolControls({ stamp, enforceColors, colors }: StampToolCon
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png"
+        accept="image/*"
         onChange={handleFileChange}
         className="hidden"
       />
       <Button size="sm" variant="ghost" onClick={openFileDialog}>
-        Nahrát PNG
+        Nahrát
       </Button>
       {enforceColors && colors && colors.length > 0 && (
         <Button

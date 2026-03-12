@@ -19,6 +19,7 @@ const DEFAULT_STAMP_SIZE = 24;
 const MIN_STAMP_SIZE = 8;
 const MAX_STAMP_SIZE = 256;
 const STAMP_ALPHA_CUTOFF = 20;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const STAMP_FIT_MODE: "contain" | "stretch" = "contain";
 const STAMP_UNPREMULTIPLY = true;
 const STAMP_SMOOTHING = true;
@@ -227,8 +228,13 @@ export function useStampTool(options: StampOptions = {}) {
       if (!file) {
         return;
       }
-      if (file.type !== "image/png") {
-        setStampError("Pouze PNG");
+      if (!file.type.startsWith("image/")) {
+        setStampError("Pouze obrázky");
+        setStampReady(false);
+        return;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        setStampError("Maximální velikost je 10 MB");
         setStampReady(false);
         return;
       }
