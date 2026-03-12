@@ -1,4 +1,5 @@
 import { query, internalQuery } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 
 export const getTransactions = query({
@@ -16,6 +17,20 @@ export const getTransactions = query({
       return await q.take(limit);
     }
     return await q.collect();
+  },
+});
+
+export const getTransactionsPaginated = query({
+  args: {
+    canvasId: v.id("canvases"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, { canvasId, paginationOpts }) => {
+    return await ctx.db
+      .query("transactions")
+      .withIndex("by_canvas_time", (q) => q.eq("canvasId", canvasId))
+      .order("asc")
+      .paginate(paginationOpts);
   },
 });
 

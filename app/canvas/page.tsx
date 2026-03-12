@@ -674,7 +674,9 @@ export default function CanvasPage() {
   const _getBasePacked = useCallback(
     (key: string): number => {
       const overlayColor = overlayPixels.get(key);
-      if (overlayColor !== undefined) return hexToPacked(overlayColor);
+      if (overlayColor !== undefined) {
+        return hexToPacked(overlayColor);
+      }
       const hit = _snapshotLookup(key);
       return hit ? hit.packed : WHITE_PACKED;
     },

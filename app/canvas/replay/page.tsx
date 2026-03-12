@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { Canvas } from "../Canvas";
@@ -58,17 +58,31 @@ function ReplayPageInner() {
     api.canvases.getById,
     canvasId ? { id: canvasId } : "skip",
   );
-  const rawTransactions = useQuery(
-    api.history.getTransactions,
+  const {
+    results: paginatedResults,
+    status: paginationStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.history.getTransactionsPaginated,
     canvasId ? { canvasId } : "skip",
+    { initialNumItems: 500 },
   );
 
+  // Auto-load all pages
+  useEffect(() => {
+    if (paginationStatus === "CanLoadMore") {
+      loadMore(500);
+    }
+  }, [paginationStatus, loadMore]);
+
+  const allLoaded = paginationStatus === "Exhausted";
+
   const sortedTransactions = useMemo(() => {
-    if (!rawTransactions) {
+    if (!paginatedResults || paginatedResults.length === 0) {
       return null;
     }
-    return [...rawTransactions].reverse();
-  }, [rawTransactions]);
+    return paginatedResults;
+  }, [paginatedResults]);
 
   const totalSteps = sortedTransactions?.length ?? 0;
 
@@ -287,7 +301,14 @@ function ReplayPageInner() {
         onSpeedChange={setSpeed}
       />
 
-      {totalSteps === 0 && rawTransactions !== undefined && (
+      {!allLoaded && paginatedResults.length > 0 && (
+        <div className="pointer-events-none absolute inset-0 flex items-end justify-center pb-24">
+          <span className="rounded-full border bg-background/90 px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm">
+            Načítám transakce… ({paginatedResults.length})
+          </span>
+        </div>
+      )}
+      {totalSteps === 0 && allLoaded && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="rounded-full border bg-background/90 px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm">
             Zatím žádné transakce
