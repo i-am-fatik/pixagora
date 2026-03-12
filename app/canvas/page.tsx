@@ -1271,7 +1271,7 @@ export default function CanvasPage() {
         onFreeModePaintingChange={setIsFreeModePainting}
         brushSize={brushSize}
         onBrushSizeChange={setBrushSize}
-        toolContextControls={<StampToolControls stamp={stampTool} enforceColors={enforceColors} colors={colors} />}
+        toolContextControls={<StampToolControls stamp={stampTool} />}
       >
         {totalCanvases === 0 && !snapshotBitmap ? (
           <div className="flex h-full w-full items-center justify-center">

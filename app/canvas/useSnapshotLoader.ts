@@ -99,7 +99,7 @@ function snapshotReducer(state: SnapshotState, action: SnapshotAction): Snapshot
     case "ws_enrich":
       return { ...state, createdAt: action.createdAt };
     case "ws_no_snapshot":
-      return { ...state, phase: "complete", hasNoSnapshot: true };
+      return { ...INITIAL_STATE, phase: "complete", hasNoSnapshot: true };
     case "load_from_cache": {
       const c = action.cached;
       return {
@@ -209,7 +209,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
     if (!canvasId) return;
     const canvasIdStr = canvasId as string;
 
-    // Canvas switch: check cache
+    // Canvas switch: check cache or reset stale state
     if (canvasIdRef.current !== canvasIdStr) {
       canvasIdRef.current = canvasIdStr;
       wsProcessedForRef.current = null;
@@ -218,23 +218,42 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
         dispatch({ type: "load_from_cache", cached });
         return;
       }
+      // Clear previous canvas's bitmap/createdAt so hasSnapshot correctly becomes false
+      dispatch({ type: "reset" });
     }
 
     if (snapshotData === undefined) return;
-    if (wsProcessedForRef.current === canvasIdStr) return;
 
     if (snapshotData === null) {
-      wsProcessedForRef.current = canvasIdStr;
+      const nullKey = `${canvasIdStr}:null`;
+      if (wsProcessedForRef.current === nullKey) return;
+      wsProcessedForRef.current = nullKey;
       dispatch({ type: "ws_no_snapshot" });
       return;
     }
 
+    const snapshotKey = `${canvasIdStr}:${snapshotData.createdAt}`;
+    if (wsProcessedForRef.current === snapshotKey) return;
+
+    const isNewVersion = wsProcessedForRef.current !== null;
     const current = stateRef.current;
     const wsUrl = snapshotData.url ?? null;
 
+    // New snapshot version arrived — re-fetch the blob
+    if (isNewVersion && wsUrl) {
+      wsProcessedForRef.current = snapshotKey;
+      fetchAndDecode(
+        fixConvexUrl(wsUrl),
+        snapshotData.createdAt ?? null,
+        canvasIdStr,
+        true,
+      );
+      return;
+    }
+
     // Eager decode already loaded a bitmap — just enrich with createdAt
     if (current.bitmap && current.phase !== "idle" && current.phase !== "loading") {
-      wsProcessedForRef.current = canvasIdStr;
+      wsProcessedForRef.current = snapshotKey;
       if (snapshotData.createdAt) {
         dispatch({ type: "ws_enrich", createdAt: snapshotData.createdAt });
       }
@@ -255,7 +274,7 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
 
     // No bitmap yet — fetch from WS URL
     if (wsUrl && current.phase !== "loading") {
-      wsProcessedForRef.current = canvasIdStr;
+      wsProcessedForRef.current = snapshotKey;
       fetchAndDecode(
         fixConvexUrl(wsUrl),
         snapshotData.createdAt ?? null,
@@ -270,7 +289,8 @@ export function useSnapshotLoader(canvasId: Id<"canvases"> | undefined) {
     state.phase === "bitmap_ready" ||
     state.phase === "complete" ||
     state.phase === "error" ||
-    state.hasNoSnapshot;
+    state.hasNoSnapshot ||
+    (state.phase === "loading" && state.bitmap !== null);
 
   return {
     snapshotPixelData: state.pixelData,

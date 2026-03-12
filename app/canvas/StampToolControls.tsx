@@ -1,6 +1,5 @@
 "use client";
 
-import { Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { useStampTool } from "./useStampTool";
 
@@ -8,24 +7,20 @@ type StampToolApi = ReturnType<typeof useStampTool>;
 
 type StampToolControlsProps = {
   stamp: StampToolApi;
-  enforceColors?: boolean;
-  colors?: string[];
 };
 
-export function StampToolControls({ stamp, enforceColors, colors }: StampToolControlsProps) {
+export function StampToolControls({ stamp }: StampToolControlsProps) {
   const {
     stampReady,
     stampError,
     stampName,
     stampSize,
     setStampSize,
-    stampPixels,
     minStampSize,
     maxStampSize,
     fileInputRef,
     handleFileChange,
     openFileDialog,
-    remapToColors,
   } = stamp;
 
   const stampDisabled = !stampReady || !!stampError;
@@ -62,19 +57,6 @@ export function StampToolControls({ stamp, enforceColors, colors }: StampToolCon
       <Button size="sm" variant="ghost" onClick={openFileDialog}>
         Nahrát
       </Button>
-      {enforceColors && colors && colors.length > 0 && (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => remapToColors(colors)}
-          disabled={stampDisabled || stampPixels.length === 0}
-          className="gap-1"
-          title="Převést barvy razítka na povolenou paletu"
-        >
-          <Palette className="h-4 w-4" />
-          <span className="hidden sm:inline">Paleta</span>
-        </Button>
-      )}
     </>
   );
 }
