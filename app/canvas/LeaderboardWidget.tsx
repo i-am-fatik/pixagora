@@ -95,13 +95,16 @@ function LeaderboardRow({
 
 export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
   const [open, setOpen] = useState(false);
-  const preview = useQuery(api.leaderboard.list, { limit: 4 });
-  const full = useQuery(api.leaderboard.list, open ? {} : "skip");
-  const rank = useQuery(
-    api.leaderboard.getRank,
-    viewerId ? { userId: viewerId } : "skip",
+  const preview = useQuery(api.leaderboard.getData, {
+    limit: 4,
+    viewerId: viewerId ?? undefined,
+  });
+  const full = useQuery(
+    api.leaderboard.getData,
+    open ? { viewerId: viewerId ?? undefined } : "skip",
   );
-  const stats = useQuery(api.leaderboard.getStats, {});
+  const rank = preview?.rank ?? null;
+  const stats = preview?.stats ?? null;
   const previewLoading = preview === undefined;
   const fullLoading = open && full === undefined;
 
@@ -220,7 +223,7 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-black/10 bg-card/90 p-5 shadow-xl backdrop-blur dark:border-white/10">
+          <div className="flex w-full max-w-md max-h-[calc(100dvh-2rem)] flex-col rounded-2xl border border-black/10 bg-card/90 p-5 shadow-xl backdrop-blur dark:border-white/10">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Leaderboard</h2>
               <button
@@ -373,7 +376,7 @@ export function LeaderboardWidget({ viewerId }: { viewerId?: Id<"users"> }) {
                 </div>
               </div>
             )}
-            <div className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+            <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {fullLoading ? (
                 <div className="text-sm text-muted-foreground">Načítám…</div>
               ) : allEntries.length > 0 ? (

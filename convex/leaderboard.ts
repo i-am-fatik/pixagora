@@ -33,70 +33,75 @@ function displayNameForUser(user: { nickname?: string }) {
   return nick && nick.length > 0 ? nick : "Anonym";
 }
 
-export const list = query({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, { limit }) => {
-    const users = await ctx.db.query("users").collect();
-    const entries = users
-      .filter((u) => !u.isAdmin && (u.totalPixelCount ?? 0) > 0)
-      .map((u) => ({
-        userId: u._id,
-        count: u.totalPixelCount ?? 0,
-        displayName: displayNameForUser(u),
-        displayColor: u.nicknameColor ?? pickColor(u._id),
-        displayEmail: u.showEmail ? u.email : undefined,
-      }));
-
-    entries.sort((a, b) => {
-      if (b.count !== a.count) {
-        return b.count - a.count;
-      }
-      return a.displayName.localeCompare(b.displayName);
-    });
-
-    const sliced =
-      typeof limit === "number"
-        ? entries.slice(0, Math.max(0, limit))
-        : entries;
-    return { entries: sliced, total: entries.length };
+// Combined query: single users+payments scan returns entries, rank, and stats.
+export const getData = query({
+  args: {
+    limit: v.optional(v.number()),
+    viewerId: v.optional(v.id("users")),
   },
-});
-
-export const getRank = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, { userId }) => {
+  handler: async (ctx, { limit, viewerId }) => {
     const users = await ctx.db.query("users").collect();
-    const entries = users
-      .filter((u) => !u.isAdmin && (u.totalPixelCount ?? 0) > 0)
-      .map((u) => ({
-        userId: u._id,
-        count: u.totalPixelCount ?? 0,
-        displayName: displayNameForUser(u),
-        displayColor: u.nicknameColor ?? pickColor(u._id),
-      }));
 
-    entries.sort((a, b) => {
-      if (b.count !== a.count) {
-        return b.count - a.count;
-      }
-      return a.displayName.localeCompare(b.displayName);
-    });
-
-    const index = entries.findIndex((entry) => entry.userId === userId);
-    if (index === -1) {
-      return null;
+    // For users without totalPixelCount, compute from transactions (by_user index)
+    const needsCompute = users.filter(
+      (u) => !u.isAdmin && u.totalPixelCount === undefined,
+    );
+    const computedCounts = new Map<string, number>();
+    for (const u of needsCompute) {
+      const txs = await ctx.db
+        .query("transactions")
+        .withIndex("by_user", (q) => q.eq("userId", u._id))
+        .collect();
+      let count = 0;
+      for (const tx of txs) count += tx.changes.length;
+      if (count > 0) computedCounts.set(u._id as string, count);
     }
-    return {
-      rank: index + 1,
-      count: entries[index]?.count ?? 0,
-      displayColor: entries[index]?.displayColor ?? "#facc15",
-    };
-  },
-});
 
-export const getStats = query({
-  args: {},
-  handler: async (ctx) => {
+    const entries = users
+      .filter((u) => !u.isAdmin)
+      .map((u) => {
+        const count =
+          u.totalPixelCount ?? computedCounts.get(u._id as string) ?? 0;
+        if (count <= 0) return null;
+        return {
+          userId: u._id,
+          count,
+          displayName: displayNameForUser(u),
+          displayColor: u.nicknameColor ?? pickColor(u._id),
+          displayEmail: u.showEmail ? u.email : undefined,
+        };
+      })
+      .filter(
+        (e): e is NonNullable<typeof e> => e !== null,
+      );
+
+    entries.sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      return a.displayName.localeCompare(b.displayName);
+    });
+
+    // User rank
+    let rank: { rank: number; count: number; displayColor: string } | null =
+      null;
+    if (viewerId) {
+      const index = entries.findIndex((e) => e.userId === viewerId);
+      if (index !== -1) {
+        rank = {
+          rank: index + 1,
+          count: entries[index]?.count ?? 0,
+          displayColor: entries[index]?.displayColor ?? "#facc15",
+        };
+      }
+    }
+
+    // Stats
+    let totalPx = 0;
+    for (const u of users) {
+      totalPx +=
+        u.totalPixelCount ?? computedCounts.get(u._id as string) ?? 0;
+    }
     const payments = await ctx.db.query("payments").collect();
     let totalCzk = 0;
     for (const payment of payments) {
@@ -105,13 +110,17 @@ export const getStats = query({
       }
     }
 
-    const users = await ctx.db.query("users").collect();
-    let totalPx = 0;
-    for (const u of users) {
-      totalPx += u.totalPixelCount ?? 0;
-    }
+    const sliced =
+      typeof limit === "number"
+        ? entries.slice(0, Math.max(0, limit))
+        : entries;
 
-    return { totalCzk, totalPx };
+    return {
+      entries: sliced,
+      total: entries.length,
+      rank,
+      stats: { totalCzk, totalPx },
+    };
   },
 });
 
