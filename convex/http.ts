@@ -8,7 +8,7 @@ import {
   signPixagoraPayload,
   timingSafeEqualHex,
 } from "./webhook_utils";
-import { servePng } from "./snapshots";
+import { servePng, serveDefaultPng } from "./snapshots";
 
 const http = httpRouter();
 
@@ -326,6 +326,18 @@ http.route({
   pathPrefix: "/api/canvas/",
   method: "GET",
   handler: servePng,
+});
+
+http.route({
+  path: "/api/snapshot/default",
+  method: "GET",
+  handler: serveDefaultPng,
+});
+
+http.route({
+  path: "/api/snapshot/default",
+  method: "OPTIONS",
+  handler: serveDefaultPng,
 });
 
 export default http;

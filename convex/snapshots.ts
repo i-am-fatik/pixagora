@@ -114,3 +114,42 @@ export const servePng = httpAction(async (ctx, request) => {
     },
   });
 });
+
+// ---------------------------------------------------------------------------
+// HTTP handler: serve default (first) canvas snapshot
+// GET /api/snapshot/default
+// No canvas ID needed — returns the first canvas's snapshot.
+// Used by SSR <img> placeholder for instant first paint (zero JS).
+// ---------------------------------------------------------------------------
+export const serveDefaultPng = httpAction(async (ctx, request) => {
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+  };
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  const canvases = await ctx.runQuery(api.canvases.getAll, {});
+  const canvas = canvases?.[0];
+  if (!canvas) {
+    return new Response("No canvas found", { status: 404, headers: corsHeaders });
+  }
+
+  const snapshot = await ctx.runQuery(api.snapshots.getLatestSnapshot, {
+    canvasId: canvas._id,
+  });
+  if (!snapshot?.url) {
+    return new Response("No snapshot available", { status: 404, headers: corsHeaders });
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      ...corsHeaders,
+      Location: snapshot.url,
+      "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
+    },
+  });
+});

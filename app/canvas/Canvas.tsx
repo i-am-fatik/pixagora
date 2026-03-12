@@ -43,16 +43,17 @@ function buildPixelBuffer(
   h: number,
   snapshotBitmap?: ImageBitmap | null,
   overlayPixels?: Map<string, string>,
-): { offscreen: OffscreenCanvas; imageData: ImageData } {
+): { offscreen: OffscreenCanvas; imageData: ImageData | null } {
   const offscreen = new OffscreenCanvas(w, h);
   const octx = offscreen.getContext("2d")!;
 
-  // Fast path: draw snapshot bitmap directly, then overlay small server pixel map
+  // Fast path: draw snapshot bitmap directly, then overlay small server pixel map.
+  // Skip getImageData — it's a 50-150ms GPU readback on mobile that blocks first paint.
+  // baseImageData is lazy-initialized when the user first paints (see applyPendingToBuffer).
   if (snapshotBitmap) {
     octx.fillStyle = "#ffffff";
     octx.fillRect(0, 0, w, h);
     octx.drawImage(snapshotBitmap, 0, 0);
-    // Apply small overlay (optimistic merge data — typically 0-few thousand pixels)
     if (overlayPixels && overlayPixels.size > 0) {
       overlayPixels.forEach((color, key) => {
         const ci = key.indexOf(",");
@@ -64,8 +65,7 @@ function buildPixelBuffer(
         }
       });
     }
-    const imageData = octx.getImageData(0, 0, w, h);
-    return { offscreen, imageData };
+    return { offscreen, imageData: null };
   }
 
   // Slow path: build from Map (no snapshot available)
@@ -699,12 +699,14 @@ export function Canvas({
       basePixelMap, width, height, snapshotBitmap, overlayPixels,
     );
     pixelBufferRef.current = offscreen;
-    baseImageDataRef.current = imageData;
-    // Apply current pending on top of fresh base
-    const pending = pendingPixelsRef.current;
-    appliedPendingKeysRef.current = applyPendingToBuffer(
-      offscreen, imageData, pending, new Set(), width, height,
-    );
+    baseImageDataRef.current = imageData; // null for bitmap fast path — lazy-init on first paint
+    // Apply current pending on top of fresh base (skip when imageData deferred — pending is empty on load)
+    if (imageData) {
+      const pending = pendingPixelsRef.current;
+      appliedPendingKeysRef.current = applyPendingToBuffer(
+        offscreen, imageData, pending, new Set(), width, height,
+      );
+    }
     pixelDirtyRef.current = true;
     scheduleRedrawRef.current();
   }, [basePixelMap, width, height, snapshotBitmap, overlayPixels]);
@@ -712,8 +714,16 @@ export function Canvas({
   // Incremental pending update (runs per paint — only touches changed pixels)
   useEffect(() => {
     const offscreen = pixelBufferRef.current;
+    if (!offscreen) return;
+    // Lazy-init baseImageData on first paint (deferred from bitmap fast path)
+    if (!baseImageDataRef.current) {
+      const octx = offscreen.getContext("2d");
+      if (octx) {
+        baseImageDataRef.current = octx.getImageData(0, 0, width, height);
+      }
+    }
     const baseData = baseImageDataRef.current;
-    if (!offscreen || !baseData) return;
+    if (!baseData) return;
     appliedPendingKeysRef.current = applyPendingToBuffer(
       offscreen, baseData, pendingPixels, appliedPendingKeysRef.current, width, height,
     );

@@ -34,6 +34,7 @@ const STARTOVAC_URL = "https://www.startovac.cz/projekty/anarchoagorismus/";
 const EMPTY_PIXEL_MAP = new Map<string, string>();
 const EMPTY_PENDING: Record<string, string> = {};
 
+
 import { fixConvexUrl } from "./fixConvexUrl";
 
 type PendingChange = {
@@ -307,7 +308,7 @@ export default function CanvasPage() {
   // No per-pixel delta/paginated queries — eliminates reactive storms and timeouts.
   // Other users see changes when snapshot regenerates (~3s after commit).
   // Fallback: paginated loading for canvases that have no snapshot yet.
-  const hasSnapshot = snapshotReady && snapshotCreatedAt !== null;
+  const hasSnapshot = snapshotReady && (snapshotCreatedAt !== null || snapshotBitmap !== null);
 
   const {
     results: fullPixels,
@@ -335,12 +336,14 @@ export default function CanvasPage() {
     palette: colors,
     onToolActivated: () => setActiveTool("stamp"),
   });
-  const gridWidth = activeCanvas?.width ?? 20;
-  const gridHeight = activeCanvas?.height ?? 20;
+  // Use bitmap dimensions when canvases haven't loaded yet (single-request path)
+  const gridWidth = activeCanvas?.width ?? snapshotBitmap?.width ?? 20;
+  const gridHeight = activeCanvas?.height ?? snapshotBitmap?.height ?? 20;
   const pixelPrice = activeCanvas?.pixelPrice ?? 1;
 
-  // Reactive price map from DB chunks (replaces gzipped file storage + 15s cron)
-  const priceMap = usePriceMap(canvasId, gridWidth, gridHeight);
+  // Reactive price map from DB chunks — deferred until snapshot is ready so the
+  // ~500KB WS message doesn't compete with initial PNG decode on slow connections
+  const priceMap = usePriceMap(snapshotReady ? canvasId : undefined, gridWidth, gridHeight);
   const totalCanvases = canvases?.length ?? 0;
 
   // Sync stampTool internal mode with activeTool
@@ -1270,7 +1273,7 @@ export default function CanvasPage() {
         onBrushSizeChange={setBrushSize}
         toolContextControls={<StampToolControls stamp={stampTool} enforceColors={enforceColors} colors={colors} />}
       >
-        {totalCanvases === 0 ? (
+        {totalCanvases === 0 && !snapshotBitmap ? (
           <div className="flex h-full w-full items-center justify-center">
             <div className="text-sm text-muted-foreground">
               {canvases === undefined
@@ -1281,7 +1284,7 @@ export default function CanvasPage() {
         ) : (
           <CanvasReels
             ref={reelsRef}
-            count={totalCanvases}
+            count={totalCanvases || 1}
             onIndexChange={handleReelIndexChange}
             renderItem={(index) => (
               <div className="flex h-full w-full items-center justify-center overflow-hidden">

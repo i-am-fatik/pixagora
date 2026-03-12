@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
 import { ReactNode } from "react";
+import SnapshotPreloader from "./SnapshotPreloader";
 
 export const metadata: Metadata = {
   title: "Plátno",
@@ -34,5 +35,10 @@ export const metadata: Metadata = {
 };
 
 export default function CanvasLayout({ children }: { children: ReactNode }) {
-  return <ConvexClientProvider>{children}</ConvexClientProvider>;
+  return (
+    <ConvexClientProvider>
+      <SnapshotPreloader />
+      {children}
+    </ConvexClientProvider>
+  );
 }
