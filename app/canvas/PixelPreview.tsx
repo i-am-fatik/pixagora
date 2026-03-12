@@ -13,7 +13,6 @@ type GridLayout = {
   width: number;
   height: number;
   cell: number;
-  scale: number;
 };
 
 function computeLayout(
@@ -37,11 +36,10 @@ function computeLayout(
   const width = maxX - minX + 1 + 2;
   const height = maxY - minY + 1 + 2;
   const maxDim = Math.max(width, height);
+  // At least 1 canvas pixel per cell — CSS handles downscaling
   const cell = Math.max(1, Math.floor(maxSize / maxDim));
-  const totalPx = maxDim * cell;
-  const scale = totalPx > maxSize ? maxSize / totalPx : 1;
 
-  return { minX, minY, width, height, cell, scale };
+  return { minX, minY, width, height, cell };
 }
 
 function drawPreview(
@@ -49,10 +47,10 @@ function drawPreview(
   pixels: { x: number; y: number; color: string }[],
   layout: GridLayout,
 ): void {
-  const { minX, minY, width, height, cell, scale } = layout;
+  const { minX, minY, width, height, cell } = layout;
 
-  const canvasW = Math.round(width * cell * scale);
-  const canvasH = Math.round(height * cell * scale);
+  const canvasW = width * cell;
+  const canvasH = height * cell;
 
   if (canvas.width !== canvasW || canvas.height !== canvasH) {
     canvas.width = canvasW;
@@ -64,20 +62,13 @@ function drawPreview(
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvasW, canvasH);
-
-  const step = cell * scale;
   ctx.imageSmoothingEnabled = false;
 
   for (const p of pixels) {
-    const x = (p.x - minX + 1) * step;
-    const y = (p.y - minY + 1) * step;
+    const x = (p.x - minX + 1) * cell;
+    const y = (p.y - minY + 1) * cell;
     ctx.fillStyle = p.color;
-    ctx.fillRect(
-      Math.round(x),
-      Math.round(y),
-      Math.round(step),
-      Math.round(step),
-    );
+    ctx.fillRect(x, y, cell, cell);
   }
 }
 
@@ -100,14 +91,20 @@ export const PixelPreview = memo(function PixelPreview({
 
   if (!layout) return null;
 
-  const displayW = Math.round(layout.width * layout.cell * layout.scale);
-  const displayH = Math.round(layout.height * layout.cell * layout.scale);
+  // Canvas resolution (integer pixels, no fractional rendering)
+  const canvasW = layout.width * layout.cell;
+  const canvasH = layout.height * layout.cell;
+  // CSS display size: fit into maxSize
+  const maxDim = Math.max(canvasW, canvasH);
+  const displayRatio = maxDim > maxSize ? maxSize / maxDim : 1;
+  const displayW = Math.round(canvasW * displayRatio);
+  const displayH = Math.round(canvasH * displayRatio);
 
   return (
     <canvas
       ref={canvasRef}
-      width={displayW}
-      height={displayH}
+      width={canvasW}
+      height={canvasH}
       style={{
         display: "block",
         width: displayW,

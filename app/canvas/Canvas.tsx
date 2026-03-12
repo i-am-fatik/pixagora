@@ -530,47 +530,50 @@ export function Canvas({
   /** Fraction of cell size (0..0.5) by which pointer must be inside the cell to count for free paint. Reduces accidental diagonal paints. */
   const FREE_PAINT_CELL_INSET = 0.1;
   const [fitScale] = useState(1);
-  // Precompute bounding box of move pixels for offset calculations and preview sizing.
-  const moveBounds = useMemo(() => {
-    if (!movePreviewPixels || movePreviewPixels.length === 0)
+  // Stamp preview on mobile: show corner widget for stamp drag-to-place
+  const stampPreviewActive = isCoarsePointer && !movePreviewActive && !!stampOverlayPixels?.length;
+  const anyPreviewActive = movePreviewActive || stampPreviewActive;
+  // The pixels shown in the corner preview widget
+  const activePreviewPixels = movePreviewActive
+    ? movePreviewPixels
+    : stampPreviewActive
+      ? stampOverlayPixels
+      : null;
+
+  // Precompute bounding box of preview pixels for offset calculations and sizing.
+  const previewBounds = useMemo(() => {
+    if (!activePreviewPixels || activePreviewPixels.length === 0)
       return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    for (const p of movePreviewPixels) {
+    for (const p of activePreviewPixels) {
       if (p.x < minX) minX = p.x;
       if (p.y < minY) minY = p.y;
       if (p.x > maxX) maxX = p.x;
       if (p.y > maxY) maxY = p.y;
     }
     return { minX, minY, maxX, maxY };
-  }, [movePreviewPixels]);
+  }, [activePreviewPixels]);
 
-  // Dynamic preview size: ensure at least 1 CSS px per cell for large stamps.
-  const PREVIEW_MAX = useMemo(() => {
-    if (!movePreviewPixels || movePreviewPixels.length === 0) return 120;
-    const artW = moveBounds.maxX - moveBounds.minX + 3;
-    const artH = moveBounds.maxY - moveBounds.minY + 3;
-    const artMaxDim = Math.max(artW, artH);
-    return Math.max(120, Math.min(280, artMaxDim));
-  }, [moveBounds, movePreviewPixels]);
+  const PREVIEW_MAX = 120;
   const PREVIEW_MARGIN = 12;
 
   const previewPixels = useMemo(() => {
-    if (!movePreviewPixels || movePreviewPixels.length === 0) {
+    if (!activePreviewPixels || activePreviewPixels.length === 0) {
       return [];
     }
-    if (!movePreviewActive || !previewCell || isPreviewDragging) {
-      return movePreviewPixels;
+    if (!anyPreviewActive || !previewCell || isPreviewDragging) {
+      return activePreviewPixels;
     }
-    return movePreviewPixels.map((px) => {
+    return activePreviewPixels.map((px) => {
       const absX = previewCell.x + px.x;
       const absY = previewCell.y + px.y;
       const outOfBounds = absX < 0 || absY < 0 || absX >= width || absY >= height;
       return outOfBounds ? { ...px, color: "#ef4444" } : px;
     });
-  }, [height, isPreviewDragging, movePreviewActive, movePreviewPixels, previewCell, width]);
+  }, [height, isPreviewDragging, anyPreviewActive, activePreviewPixels, previewCell, width]);
   // moveOverlay is now computed lazily inside the rAF draw callback
   // (see moveOverlayCacheRef) to avoid O(n) Map rebuilds on every cell change.
   const getDockPosition = useCallback(() => {
@@ -678,8 +681,8 @@ export function Canvas({
   /** Dynamic offsets: push the overlay so its bottom-right corner clears the finger. */
   const getTouchOffsetY = useCallback(() => {
     const step = baseCellSize + CELL_GAP;
-    return (moveBounds.maxY + 1) * step * scaleRef.current + FINGER_MARGIN;
-  }, [baseCellSize, moveBounds.maxY]);
+    return (previewBounds.maxY + 1) * step * scaleRef.current + FINGER_MARGIN;
+  }, [baseCellSize, previewBounds.maxY]);
 
   const getTouchOffsetX = useCallback(() => {
     return 40;
@@ -941,6 +944,7 @@ export function Canvas({
     highlightedPixels,
     stampOverlayPixels,
     movePreviewActive,
+    stampPreviewActive,
     isCoarsePointer,
     showHoverIndicator: !movePreviewActive && !stampOverlayPixels?.length,
   });
@@ -954,6 +958,7 @@ export function Canvas({
       highlightedPixels,
       stampOverlayPixels,
       movePreviewActive,
+      stampPreviewActive,
       isCoarsePointer,
       showHoverIndicator: !movePreviewActive && !stampOverlayPixels?.length,
     };
@@ -964,6 +969,7 @@ export function Canvas({
     selectedColor,
     highlightedPixels,
     movePreviewActive,
+    stampPreviewActive,
     isCoarsePointer,
     stampOverlayPixels,
   ]);
@@ -1013,7 +1019,9 @@ export function Canvas({
       }
 
       // Stamp overlay: cached, only rebuild when hover cell or stamp data changes
-      const hoverCell = hoveredCellRef.current;
+      // On mobile during stamp drag, use previewCell (hoveredCellRef is null for touch)
+      const hoverCell = hoveredCellRef.current
+        || (d.stampPreviewActive && isPreviewDraggingRef.current ? previewCellRef.current : null);
       let computedStampOverlay: { map: Map<string, string>; invalid: boolean } | null = null;
       if (d.stampOverlayPixels?.length && hoverCell) {
         const cache = stampOverlayCacheRef.current;
@@ -1163,17 +1171,17 @@ export function Canvas({
     };
   }, []);
 
-  // Reset preview state when move preview props change (React "setState during render" pattern)
-  const [prevMovePreview, setPrevMovePreview] = useState({
-    active: movePreviewActive,
-    pixels: movePreviewPixels,
+  // Reset preview state when preview props change (React "setState during render" pattern)
+  const [prevPreviewState, setPrevPreviewState] = useState({
+    active: anyPreviewActive,
+    pixels: activePreviewPixels,
   });
   if (
-    prevMovePreview.active !== movePreviewActive ||
-    prevMovePreview.pixels !== movePreviewPixels
+    prevPreviewState.active !== anyPreviewActive ||
+    prevPreviewState.pixels !== activePreviewPixels
   ) {
-    setPrevMovePreview({ active: movePreviewActive, pixels: movePreviewPixels });
-    if (!movePreviewActive || !movePreviewPixels || movePreviewPixels.length === 0) {
+    setPrevPreviewState({ active: anyPreviewActive, pixels: activePreviewPixels });
+    if (!anyPreviewActive || !activePreviewPixels || activePreviewPixels.length === 0) {
       setPreviewPos(null);
       setPreviewCell(null);
       setIsPreviewDragging(false);
@@ -1181,11 +1189,11 @@ export function Canvas({
   }
   // Ref cleanup in effect (no setState, so no cascading render)
   useEffect(() => {
-    if (!movePreviewActive || !movePreviewPixels || movePreviewPixels.length === 0) {
+    if (!anyPreviewActive || !activePreviewPixels || activePreviewPixels.length === 0) {
       dragOffsetRef.current = null;
       dragPointerIdRef.current = null;
     }
-  }, [movePreviewActive, movePreviewPixels]);
+  }, [anyPreviewActive, activePreviewPixels]);
 
   useEffect(() => {
     if (!containerSize.width || !containerSize.height) {
@@ -1605,7 +1613,7 @@ export function Canvas({
   const handlePreviewPointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
   ) => {
-    if (!isCoarsePointer || !movePreviewActive) {
+    if (!isCoarsePointer || !anyPreviewActive) {
       return;
     }
     event.stopPropagation();
@@ -1709,7 +1717,7 @@ export function Canvas({
           ? "cursor-crosshair"
           : stampOverlayPixels?.length
             ? "cursor-crosshair"
-            : movePreviewActive
+            : anyPreviewActive
               ? isInteracting
                 ? "cursor-grabbing"
                 : "cursor-crosshair"
@@ -1778,15 +1786,19 @@ export function Canvas({
         }}
       />
       {isCoarsePointer &&
-        movePreviewActive &&
-        movePreviewPixels &&
-        movePreviewPixels.length > 0 &&
+        anyPreviewActive &&
+        activePreviewPixels &&
+        activePreviewPixels.length > 0 &&
         previewStyle && (
           <div
             className={`absolute ${
               isCoarsePointer ? "pointer-events-auto" : "pointer-events-none"
-            } transition-all duration-200 ${isPreviewDragging ? "opacity-0" : "opacity-100"}`}
-            style={previewStyle}
+            } overflow-hidden transition-all duration-200 ${isPreviewDragging ? "opacity-0" : "opacity-100"}`}
+            style={{
+              ...previewStyle,
+              maxWidth: PREVIEW_MAX + 16,
+              maxHeight: PREVIEW_MAX + 16,
+            }}
             onPointerDown={handlePreviewPointerDown}
             onPointerMove={handlePreviewPointerMove}
             onPointerUp={handlePreviewPointerUp}
