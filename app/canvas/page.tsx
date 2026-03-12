@@ -703,16 +703,17 @@ export default function CanvasPage() {
     [moveDraft, pendingState.pending],
   );
 
+  const deferredPending = useDeferredValue(pendingState.pending);
   const effectivePending = useMemo(() => {
     const result: Record<string, string> = {};
-    for (const [key, color] of Object.entries(pendingState.pending)) {
+    for (const [key, color] of Object.entries(deferredPending)) {
       const existingColor = (getBaseColor(key) ?? "#ffffff").toLowerCase();
       if (existingColor !== color.toLowerCase()) {
         result[key] = color;
       }
     }
     return result;
-  }, [pendingState.pending, getBaseColor]);
+  }, [deferredPending, getBaseColor]);
 
   const hasForeignOverwrite = useMemo(() => {
     if (!isAuthenticated || !user?._id) {
@@ -1041,7 +1042,7 @@ export default function CanvasPage() {
     if (activeTool !== "paint") {return;}
 
     const half = Math.floor(brushSize / 2);
-    const selLower = selectedColor.toLowerCase();
+    const selPacked = hexToPacked(selectedColor);
     const changes: { key: string; nextPending?: string }[] = [];
     const seen = new Set<string>();
 
@@ -1054,13 +1055,14 @@ export default function CanvasPage() {
           const key = `${px},${py}`;
           if (seen.has(key)) {continue;}
           seen.add(key);
-          const baseColor = getBaseColor(key) ?? "#ffffff";
-          const visibleColor = (
-            pendingState.pending[key] ?? baseColor
-          ).toLowerCase();
-          if (selLower === visibleColor) {continue;}
-          const nextPending =
-            selLower === baseColor.toLowerCase() ? undefined : selectedColor;
+          const basePacked = _getBasePacked(key);
+          const pendingHex = pendingState.pending[key];
+          if (pendingHex !== undefined) {
+            if (selPacked === hexToPacked(pendingHex)) {continue;}
+          } else {
+            if (selPacked === basePacked) {continue;}
+          }
+          const nextPending = selPacked === basePacked ? undefined : selectedColor;
           changes.push({ key, nextPending });
         }
       }
