@@ -40,62 +40,33 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch blob from storage via V8 runtime query + fetch with URL fallbacks.
-// Self-hosted Convex Node.js actions can't access storage directly.
-// Tries multiple URL variants (original, CONVEX_STORAGE_URL override,
-// /http/ prefix, port 3211) until one returns a valid blob.
+// Fetch blob from storage by constructing URL manually and trying variants.
+// Self-hosted Convex ctx.storage.get/getUrl both fail in Node.js actions,
+// so we build the URL ourselves from CONVEX_STORAGE_URL + storageId.
+// Convex storage URL pattern: {origin}/api/storage/{storageId}
 // ---------------------------------------------------------------------------
-function generateStorageUrlVariants(url: string): string[] {
-  const variants: string[] = [url];
-  const seen = new Set<string>([url]);
+function buildStorageUrls(storageId: string): string[] {
+  const base = process.env.CONVEX_STORAGE_URL ?? "http://127.0.0.1:3211";
+  const path = `/api/storage/${storageId}`;
+  const variants: string[] = [];
+  const seen = new Set<string>();
   const add = (v: string) => { if (!seen.has(v)) { seen.add(v); variants.push(v); } };
 
-  try {
-    const parsed = new URL(url);
-
-    // Variant: use CONVEX_STORAGE_URL override
-    const override = process.env.CONVEX_STORAGE_URL;
-    if (override) {
-      const base = new URL(override);
-      const u = new URL(url);
-      u.protocol = base.protocol;
-      u.host = base.host;
-      add(u.toString());
-    }
-
-    // Variant: add /http prefix to path
-    if (!parsed.pathname.startsWith("/http/")) {
-      const u = new URL(url);
-      u.pathname = "/http" + u.pathname;
-      add(u.toString());
-      // Also with CONVEX_STORAGE_URL origin
-      if (override) {
-        const u2 = new URL(url);
-        const base = new URL(override);
-        u2.protocol = base.protocol;
-        u2.host = base.host;
-        u2.pathname = "/http" + u2.pathname;
-        add(u2.toString());
-      }
-    }
-
-    // Variant: switch port 3210 → 3211 (site/storage port)
-    if (parsed.port === "3210") {
-      const u = new URL(url);
-      u.port = "3211";
-      add(u.toString());
-    }
-  } catch { /* keep original */ }
-
+  // Direct: base + /api/storage/id
+  add(new URL(path, base).toString());
+  // With /http prefix (some reverse proxies route site endpoints under /http/)
+  add(new URL(`/http${path}`, base).toString());
+  // Localhost fallbacks for in-Docker access
+  for (const port of ["3211", "3210"]) {
+    add(`http://127.0.0.1:${port}${path}`);
+    add(`http://127.0.0.1:${port}/http${path}`);
+  }
   return variants;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchStorageBlob(ctx: any, storageId: Id<"_storage">): Promise<ArrayBuffer | null> {
-  const url: string | null = await ctx.runQuery(internal.pixels.getStorageBlobUrl, { storageId });
-  if (!url) {return null;}
-
-  const variants = generateStorageUrlVariants(url);
+async function fetchStorageBlob(_ctx: any, storageId: Id<"_storage">): Promise<ArrayBuffer | null> {
+  const variants = buildStorageUrls(storageId as string);
   console.log("[fetchStorageBlob] trying variants:", variants);
 
   for (const variant of variants) {
@@ -303,7 +274,7 @@ type ValidationError = {
 };
 
 // ---------------------------------------------------------------------------
-// Action: commit pixels from an uploaded binary blob
+// Action: commit pixels from an uploaded binary blob.
 //
 // Uses per-pixel point lookups via upsertPixelBatch for all users.
 // When the user can't overwrite (totalPaidCzk < 666), a pre-flight
@@ -322,7 +293,7 @@ export const commitFromBlob = action({
   > => {
     // =========== Phase A: Gather data ===========
 
-    // A1: Download and decode the pixel blob (via V8 query + fetch workaround)
+    // A1: Download and decode the pixel blob
     const blobBuffer = await fetchStorageBlob(ctx, storageId);
     if (!blobBuffer) {throw new Error("Pixel blob not found in storage");}
     const rawPixels = decodePixelBlob(blobBuffer);
