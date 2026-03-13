@@ -27,8 +27,8 @@ export function StampToolControls({ stamp }: StampToolControlsProps) {
 
   return (
     <>
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground tabular-nums w-12 text-right">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="text-xs text-muted-foreground tabular-nums w-12 shrink-0 text-right">
           {stampSize}×{stampSize}
         </span>
         <input
@@ -39,7 +39,7 @@ export function StampToolControls({ stamp }: StampToolControlsProps) {
           value={stampSize}
           onChange={(e) => setStampSize(Number(e.target.value))}
           onWheel={(e) => e.currentTarget.blur()}
-          className="w-20 accent-primary"
+          className="min-w-20 flex-1 accent-primary"
           title={
             stampDisabled
               ? stampError ?? "Razítko se načítá"
