@@ -57,7 +57,7 @@ export function HowItWorksModal({
             <strong className="text-foreground">110 × 169 px</strong> můžete za{" "}
             <strong className="text-foreground">69 Kč</strong> koupit{" "}
             <strong className="text-foreground">222 pixelů</strong> nebo za{" "}
-            <strong className="text-foreground">669 Kč</strong>{" "}
+            <strong className="text-foreground">666 Kč</strong>{" "}
             <strong className="text-foreground">4444 pixelů</strong>; odměny lze
             kombinovat i kupovat opakovaně.
           </p>
@@ -81,7 +81,7 @@ export function HowItWorksModal({
             . Po nákupu na Startovači může trvat až 5 minut, než se kredity připíšou; při nákupu bitcoinem se připíší hned po potvrzení transakce.
           </p>
           <p>
-            Kdo zakoupí <strong className="text-foreground">4444 pixelů za 669 Kč</strong>, může přebarvovat již obarvené pixely (za exponenciálně rostoucí cenu, takže to není levné). Smyslem není mazat cizí díla – prosím respektujte ostatní autory – ale možnost větších přispěvatelů korigovat případné trolly. Když nevychází místo na větší dílo a v cestě stojí něco malého, můžete jej přepsat nebo posunout (vytvořit vedle); hra obsahuje chat, takže spolupráce je snadná.
+            Kdo zakoupí <strong className="text-foreground">4444 pixelů za 666 Kč</strong>, může přebarvovat již obarvené pixely (za exponenciálně rostoucí cenu, takže to není levné). Smyslem není mazat cizí díla – prosím respektujte ostatní autory – ale možnost větších přispěvatelů korigovat případné trolly. Když nevychází místo na větší dílo a v cestě stojí něco malého, můžete jej přepsat nebo posunout (vytvořit vedle); hra obsahuje chat, takže spolupráce je snadná.
           </p>
           <p>
             Obrázek v knize může vypadat trošičku jinak v závislosti na možnostech tisku. Neslibujeme, jak budou vypadat další stránky ani kdy a zda je otevřeme, protože to záleží na okolnostech, které teď nejdou předvídat.

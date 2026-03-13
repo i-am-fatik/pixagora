@@ -128,9 +128,9 @@ export const multiplyAllCredits = internalMutation({
 
 // Inverse of calculateCredits: from credits back to CZK
 function creditsToAmountCzk(credits: number): number {
-  // Better tier: 4444 px = 669 CZK
+  // Better tier: 4444 px = 666 CZK
   if (credits >= 4444) {
-    return Math.ceil(credits * (669 / 4444));
+    return Math.ceil(credits * (666 / 4444));
   }
   // Base tier: 222 px = 69 CZK
   return Math.ceil(credits * (69 / 222));

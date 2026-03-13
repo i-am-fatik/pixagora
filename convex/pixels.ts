@@ -271,10 +271,10 @@ export const commit = mutation({
         (px) => px.existingUserId && px.existingUserId !== user._id,
       );
       if (needsOverwriteAccess) {
-        if (totalPaidCzk < 669) {
+        if (totalPaidCzk < 666) {
           return {
             error: "OVERWRITE_LOCKED" as const,
-            requiredCzk: 669,
+            requiredCzk: 666,
             totalPaidCzk,
           };
         }

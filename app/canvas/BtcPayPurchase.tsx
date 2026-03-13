@@ -56,7 +56,7 @@ export function BtcPayPurchase({
   onClose,
 }: BtcPayPurchaseProps) {
   const [email, setEmail] = useState(prefillEmail ?? "");
-  const [amountCzk, setAmountCzk] = useState(669);
+  const [amountCzk, setAmountCzk] = useState(666);
   const [isCreating, setIsCreating] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [, setScriptReady] = useState(false);
@@ -65,8 +65,8 @@ export function BtcPayPurchase({
 
   const credits = calculateCredits(amountCzk);
   const currentTotal = totalPaidCzk + amountCzk;
-  const canOverwrite = currentTotal >= 669;
-  const betterPrice = amountCzk >= 669;
+  const canOverwrite = currentTotal >= 666;
+  const betterPrice = amountCzk >= 666;
 
   const handleClose = () => {
     setInvoiceOpen(false);
