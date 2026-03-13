@@ -13,7 +13,6 @@ import type * as canvases from "../canvases.js";
 import type * as chat from "../chat.js";
 import type * as commitLarge from "../commitLarge.js";
 import type * as credits from "../credits.js";
-import type * as crons from "../crons.js";
 import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as leaderboard from "../leaderboard.js";
@@ -41,7 +40,6 @@ declare const fullApi: ApiFromModules<{
   chat: typeof chat;
   commitLarge: typeof commitLarge;
   credits: typeof credits;
-  crons: typeof crons;
   history: typeof history;
   http: typeof http;
   leaderboard: typeof leaderboard;

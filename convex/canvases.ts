@@ -63,6 +63,7 @@ export const create = internalMutation({
       colors: args.colors,
       pixelPrice: args.pixelPrice,
       unlockThreshold: threshold,
+      locked: true,
       order,
       createdAt: Date.now(),
       createdBy: args.createdBy,
