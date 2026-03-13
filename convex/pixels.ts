@@ -17,6 +17,24 @@ export const generateUploadUrl = mutation(async (ctx) => {
   return await ctx.storage.generateUploadUrl();
 });
 
+// Read a storage blob as ArrayBuffer from V8 runtime (works in self-hosted
+// where Node.js actions can't access storage via HTTP).
+export const readStorageBlob = internalQuery({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }) => {
+    const blob = await ctx.storage.get(storageId);
+    if (!blob) {return null;}
+    return new Uint8Array(await blob.arrayBuffer());
+  },
+});
+
+export const deleteStorageBlob = internalMutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }) => {
+    await ctx.storage.delete(storageId);
+  },
+});
+
 export const getByCanvas = query({
   args: { canvasId: v.id("canvases") },
   handler: async (ctx, { canvasId }) => {

@@ -140,8 +140,8 @@ export const generate = internalAction({
 
     if (existingSnap) {
       try {
-        const existingBlob = await ctx.storage.get(existingSnap.storageId);
-        if (existingBlob) {
+        const existingBlobData = await ctx.runQuery(internal.pixels.readStorageBlob, { storageId: existingSnap.storageId });
+        if (existingBlobData) {
           const delta = await fetchDeltaPixels(ctx, canvasId, existingSnap.createdAt);
 
           if (delta.length === 0) {
@@ -152,7 +152,7 @@ export const generate = internalAction({
           console.log(`[snapshot] Incremental update: ${delta.length} changed pixels`);
 
           // Load existing PNG and overlay delta
-          const existingBuffer = Buffer.from(await existingBlob.arrayBuffer());
+          const existingBuffer = Buffer.from(existingBlobData);
           const img = await Jimp.read(existingBuffer);
 
           // Load existing price map from chunks (or create fresh)

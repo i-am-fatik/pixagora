@@ -245,12 +245,11 @@ export const commitFromBlob = action({
   > => {
     // =========== Phase A: Gather data ===========
 
-    // A1: Download and decode the pixel blob
-    const blob = await ctx.storage.get(storageId);
-    if (!blob) {throw new Error("Pixel blob not found in storage");}
-    const buffer = await blob.arrayBuffer();
-    const rawPixels = decodePixelBlob(buffer);
-    await ctx.storage.delete(storageId);
+    // A1: Read pixel blob via V8 runtime query (self-hosted storage workaround)
+    const blobData = await ctx.runQuery(internal.pixels.readStorageBlob, { storageId });
+    if (!blobData) {throw new Error("Pixel blob not found in storage");}
+    const rawPixels = decodePixelBlob(blobData.buffer);
+    await ctx.runMutation(internal.pixels.deleteStorageBlob, { storageId });
 
     if (rawPixels.length === 0) {throw new Error("No pixels in blob");}
 
@@ -487,10 +486,9 @@ export const estimateCost = action({
     | { error: string; totalCost?: number }
     | { error: null; totalCost: number; pixelCount: number }
   > => {
-    const pixelBlob = await ctx.storage.get(storageId);
-    if (!pixelBlob) {return { error: "Blob not found" };}
-    const buffer = await pixelBlob.arrayBuffer();
-    const rawPixels = decodePixelBlob(buffer);
+    const blobData = await ctx.runQuery(internal.pixels.readStorageBlob, { storageId });
+    if (!blobData) {return { error: "Blob not found" };}
+    const rawPixels = decodePixelBlob(blobData.buffer);
     if (rawPixels.length === 0) {return { error: null, totalCost: 0, pixelCount: 0 };}
 
     const validation: ValidationOk | ValidationError = await ctx.runQuery(
