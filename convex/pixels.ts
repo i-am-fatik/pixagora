@@ -17,9 +17,17 @@ export const generateUploadUrl = mutation(async (ctx) => {
   return await ctx.storage.generateUploadUrl();
 });
 
-// Get storage URL from V8 runtime (works in self-hosted where Node.js
-// actions' ctx.storage.getUrl() fails due to HTTP routing issues).
-export const getStorageBlobUrl = internalQuery({
+// Get signed storage download URL — public mutation for client, internal
+// query for server fallback. Needed because Node.js actions can't resolve
+// storage URLs on self-hosted deployments.
+export const getStorageUrlMut = mutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }) => {
+    return await ctx.storage.getUrl(storageId);
+  },
+});
+
+export const getStorageUrl = internalQuery({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, { storageId }) => {
     return await ctx.storage.getUrl(storageId);

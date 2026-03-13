@@ -140,7 +140,7 @@ export const generate = internalAction({
 
     if (existingSnap) {
       try {
-        const existingBlobUrl: string | null = await ctx.runQuery(internal.pixels.getStorageBlobUrl, { storageId: existingSnap.storageId });
+        const existingBlobUrl: string | null = await ctx.runQuery(internal.pixels.getStorageUrl, { storageId: existingSnap.storageId });
         if (existingBlobUrl) {
           const delta = await fetchDeltaPixels(ctx, canvasId, existingSnap.createdAt);
 

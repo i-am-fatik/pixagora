@@ -1,5 +1,3 @@
-"use node";
-
 import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -39,68 +37,6 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
   throw new Error("Unreachable");
 }
 
-// ---------------------------------------------------------------------------
-// Fetch blob from storage by constructing URL manually and trying variants.
-// Self-hosted Convex ctx.storage.get/getUrl both fail in Node.js actions,
-// so we build the URL ourselves from CONVEX_STORAGE_URL + storageId.
-// Convex storage URL pattern: {origin}/api/storage/{storageId}
-// ---------------------------------------------------------------------------
-function buildStorageUrls(storageId: string): string[] {
-  const base = process.env.CONVEX_STORAGE_URL ?? "http://127.0.0.1:3211";
-  const path = `/api/storage/${storageId}`;
-  const variants: string[] = [];
-  const seen = new Set<string>();
-  const add = (v: string) => { if (!seen.has(v)) { seen.add(v); variants.push(v); } };
-
-  // Direct: base + /api/storage/id
-  add(new URL(path, base).toString());
-  // With /http prefix (some reverse proxies route site endpoints under /http/)
-  add(new URL(`/http${path}`, base).toString());
-  // Localhost fallbacks for in-Docker access
-  for (const port of ["3211", "3210"]) {
-    add(`http://127.0.0.1:${port}${path}`);
-    add(`http://127.0.0.1:${port}/http${path}`);
-  }
-  return variants;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchStorageBlob(_ctx: any, storageId: Id<"_storage">): Promise<ArrayBuffer | null> {
-  const variants = buildStorageUrls(storageId as string);
-  const adminKey = process.env.CONVEX_SELF_HOSTED_ADMIN_KEY;
-  console.log("[fetchStorageBlob] trying variants:", variants, "hasAdminKey:", !!adminKey);
-
-  // Try each URL variant, with and without auth headers
-  for (const variant of variants) {
-    const headerSets: Record<string, string>[] = [{}];
-    if (adminKey) {
-      headerSets.push({ "Authorization": `Convex ${adminKey}` });
-      headerSets.push({ "Authorization": `Bearer ${adminKey}` });
-    }
-    for (const headers of headerSets) {
-      try {
-        const res = await fetch(variant, { headers });
-        const contentType = res.headers.get("content-type") ?? "";
-        if (res.ok && !contentType.includes("text/html")) {
-          console.log("[fetchStorageBlob] success with:", variant, "headers:", Object.keys(headers));
-          return await res.arrayBuffer();
-        }
-        // Log response body for 400 errors to understand what's needed
-        if (res.status === 400) {
-          const body = await res.text();
-          console.warn(`[fetchStorageBlob] ${variant} → ${res.status} body: ${body.substring(0, 300)}`);
-        } else {
-          console.warn(`[fetchStorageBlob] ${variant} → ${res.status} (${contentType})`);
-        }
-      } catch (err) {
-        console.warn(`[fetchStorageBlob] ${variant} → error:`, err);
-      }
-    }
-  }
-
-  console.error("[fetchStorageBlob] all variants failed for storageId:", storageId);
-  return null;
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadPriceMap(ctx: any, canvasId: Id<"canvases">, W: number, H: number): Promise<Uint16Array> {
@@ -309,10 +245,10 @@ export const commitFromBlob = action({
     // =========== Phase A: Gather data ===========
 
     // A1: Download and decode the pixel blob
-    const blobBuffer = await fetchStorageBlob(ctx, storageId);
-    if (!blobBuffer) {throw new Error("Pixel blob not found in storage");}
-    const rawPixels = decodePixelBlob(blobBuffer);
-    await ctx.runMutation(internal.pixels.deleteStorageBlob, { storageId });
+    const blob = await ctx.storage.get(storageId);
+    if (!blob) {throw new Error("Pixel blob not found in storage");}
+    const rawPixels = decodePixelBlob(await blob.arrayBuffer());
+    await ctx.storage.delete(storageId);
 
     if (rawPixels.length === 0) {throw new Error("No pixels in blob");}
 
@@ -549,9 +485,9 @@ export const estimateCost = action({
     | { error: string; totalCost?: number }
     | { error: null; totalCost: number; pixelCount: number }
   > => {
-    const blobBuffer = await fetchStorageBlob(ctx, storageId);
-    if (!blobBuffer) {return { error: "Blob not found" };}
-    const rawPixels = decodePixelBlob(blobBuffer);
+    const blob = await ctx.storage.get(storageId);
+    if (!blob) {return { error: "Blob not found" };}
+    const rawPixels = decodePixelBlob(await blob.arrayBuffer());
     if (rawPixels.length === 0) {return { error: null, totalCost: 0, pixelCount: 0 };}
 
     const validation: ValidationOk | ValidationError = await ctx.runQuery(
