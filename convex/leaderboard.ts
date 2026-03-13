@@ -26,10 +26,6 @@ function pickColor(seed: string): string {
 function displayNameForUser(user: { nickname?: string }) {
   const nick = user.nickname?.trim();
 
-  if (nick?.toLowerCase() === "urza") {
-    return "Anonym";
-  }
-
   return nick && nick.length > 0 ? nick : "Anonym";
 }
 
