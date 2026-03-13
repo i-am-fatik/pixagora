@@ -40,36 +40,80 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch blob from storage via V8 runtime query + fetch with URL fix.
+// Fetch blob from storage via V8 runtime query + fetch with URL fallbacks.
 // Self-hosted Convex Node.js actions can't access storage directly.
+// Tries multiple URL variants (original, CONVEX_STORAGE_URL override,
+// /http/ prefix, port 3211) until one returns a valid blob.
 // ---------------------------------------------------------------------------
-function fixStorageUrl(url: string): string {
-  const override = process.env.CONVEX_STORAGE_URL;
-  if (!override) {return url;}
+function generateStorageUrlVariants(url: string): string[] {
+  const variants: string[] = [url];
+  const seen = new Set<string>([url]);
+  const add = (v: string) => { if (!seen.has(v)) { seen.add(v); variants.push(v); } };
+
   try {
-    const u = new URL(url);
-    const base = new URL(override);
-    u.protocol = base.protocol;
-    u.host = base.host;
-    return u.toString();
-  } catch {
-    return url;
-  }
+    const parsed = new URL(url);
+
+    // Variant: use CONVEX_STORAGE_URL override
+    const override = process.env.CONVEX_STORAGE_URL;
+    if (override) {
+      const base = new URL(override);
+      const u = new URL(url);
+      u.protocol = base.protocol;
+      u.host = base.host;
+      add(u.toString());
+    }
+
+    // Variant: add /http prefix to path
+    if (!parsed.pathname.startsWith("/http/")) {
+      const u = new URL(url);
+      u.pathname = "/http" + u.pathname;
+      add(u.toString());
+      // Also with CONVEX_STORAGE_URL origin
+      if (override) {
+        const u2 = new URL(url);
+        const base = new URL(override);
+        u2.protocol = base.protocol;
+        u2.host = base.host;
+        u2.pathname = "/http" + u2.pathname;
+        add(u2.toString());
+      }
+    }
+
+    // Variant: switch port 3210 → 3211 (site/storage port)
+    if (parsed.port === "3210") {
+      const u = new URL(url);
+      u.port = "3211";
+      add(u.toString());
+    }
+  } catch { /* keep original */ }
+
+  return variants;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchStorageBlob(ctx: any, storageId: Id<"_storage">): Promise<ArrayBuffer | null> {
-  // Get URL from V8 runtime query (bypasses broken Node.js storage routing)
   const url: string | null = await ctx.runQuery(internal.pixels.getStorageBlobUrl, { storageId });
   if (!url) {return null;}
-  const fixedUrl = fixStorageUrl(url);
-  console.log("[fetchStorageBlob] original:", url, "fixed:", fixedUrl);
-  const res = await fetch(fixedUrl);
-  if (!res.ok) {
-    console.error("[fetchStorageBlob] fetch failed:", res.status);
-    return null;
+
+  const variants = generateStorageUrlVariants(url);
+  console.log("[fetchStorageBlob] trying variants:", variants);
+
+  for (const variant of variants) {
+    try {
+      const res = await fetch(variant);
+      const contentType = res.headers.get("content-type") ?? "";
+      if (res.ok && !contentType.includes("text/html")) {
+        console.log("[fetchStorageBlob] success with:", variant);
+        return await res.arrayBuffer();
+      }
+      console.warn(`[fetchStorageBlob] ${variant} → ${res.status} (${contentType})`);
+    } catch (err) {
+      console.warn(`[fetchStorageBlob] ${variant} → error:`, err);
+    }
   }
-  return await res.arrayBuffer();
+
+  console.error("[fetchStorageBlob] all variants failed for storageId:", storageId);
+  return null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
