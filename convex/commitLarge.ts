@@ -39,6 +39,39 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
   throw new Error("Unreachable");
 }
 
+// ---------------------------------------------------------------------------
+// Fetch blob from storage via V8 runtime query + fetch with URL fix.
+// Self-hosted Convex Node.js actions can't access storage directly.
+// ---------------------------------------------------------------------------
+function fixStorageUrl(url: string): string {
+  const override = process.env.CONVEX_STORAGE_URL;
+  if (!override) {return url;}
+  try {
+    const u = new URL(url);
+    const base = new URL(override);
+    u.protocol = base.protocol;
+    u.host = base.host;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchStorageBlob(ctx: any, storageId: Id<"_storage">): Promise<ArrayBuffer | null> {
+  // Get URL from V8 runtime query (bypasses broken Node.js storage routing)
+  const url: string | null = await ctx.runQuery(internal.pixels.getStorageBlobUrl, { storageId });
+  if (!url) {return null;}
+  const fixedUrl = fixStorageUrl(url);
+  console.log("[fetchStorageBlob] original:", url, "fixed:", fixedUrl);
+  const res = await fetch(fixedUrl);
+  if (!res.ok) {
+    console.error("[fetchStorageBlob] fetch failed:", res.status);
+    return null;
+  }
+  return await res.arrayBuffer();
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadPriceMap(ctx: any, canvasId: Id<"canvases">, W: number, H: number): Promise<Uint16Array> {
   const priceMap = new Uint16Array(W * H);
@@ -245,10 +278,10 @@ export const commitFromBlob = action({
   > => {
     // =========== Phase A: Gather data ===========
 
-    // A1: Read pixel blob via V8 runtime query (self-hosted storage workaround)
-    const blobData = await ctx.runQuery(internal.pixels.readStorageBlob, { storageId });
-    if (!blobData) {throw new Error("Pixel blob not found in storage");}
-    const rawPixels = decodePixelBlob(blobData.buffer);
+    // A1: Download and decode the pixel blob (via V8 query + fetch workaround)
+    const blobBuffer = await fetchStorageBlob(ctx, storageId);
+    if (!blobBuffer) {throw new Error("Pixel blob not found in storage");}
+    const rawPixels = decodePixelBlob(blobBuffer);
     await ctx.runMutation(internal.pixels.deleteStorageBlob, { storageId });
 
     if (rawPixels.length === 0) {throw new Error("No pixels in blob");}
@@ -486,9 +519,9 @@ export const estimateCost = action({
     | { error: string; totalCost?: number }
     | { error: null; totalCost: number; pixelCount: number }
   > => {
-    const blobData = await ctx.runQuery(internal.pixels.readStorageBlob, { storageId });
-    if (!blobData) {return { error: "Blob not found" };}
-    const rawPixels = decodePixelBlob(blobData.buffer);
+    const blobBuffer = await fetchStorageBlob(ctx, storageId);
+    if (!blobBuffer) {return { error: "Blob not found" };}
+    const rawPixels = decodePixelBlob(blobBuffer);
     if (rawPixels.length === 0) {return { error: null, totalCost: 0, pixelCount: 0 };}
 
     const validation: ValidationOk | ValidationError = await ctx.runQuery(

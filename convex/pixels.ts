@@ -17,14 +17,12 @@ export const generateUploadUrl = mutation(async (ctx) => {
   return await ctx.storage.generateUploadUrl();
 });
 
-// Read a storage blob as ArrayBuffer from V8 runtime (works in self-hosted
-// where Node.js actions can't access storage via HTTP).
-export const readStorageBlob = internalQuery({
+// Get storage URL from V8 runtime (works in self-hosted where Node.js
+// actions' ctx.storage.getUrl() fails due to HTTP routing issues).
+export const getStorageBlobUrl = internalQuery({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, { storageId }) => {
-    const blob = await ctx.storage.get(storageId);
-    if (!blob) {return null;}
-    return new Uint8Array(await blob.arrayBuffer());
+    return await ctx.storage.getUrl(storageId);
   },
 });
 
