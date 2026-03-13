@@ -126,6 +126,16 @@ export const multiplyAllCredits = internalMutation({
   },
 });
 
+// Inverse of calculateCredits: from credits back to CZK
+function creditsToAmountCzk(credits: number): number {
+  // Better tier: 4444 px = 669 CZK
+  if (credits >= 4444) {
+    return Math.ceil(credits * (669 / 4444));
+  }
+  // Base tier: 222 px = 69 CZK
+  return Math.ceil(credits * (69 / 222));
+}
+
 // npx convex run credits:giveawayPixels
 export const giveawayPixels = internalMutation({
   args: {},
@@ -150,18 +160,20 @@ export const giveawayPixels = internalMutation({
     ];
 
     const now = Date.now();
-    const results: { email: string; credits: number; userId: string }[] = [];
+    const results: { email: string; credits: number; amountCzk: number; userId: string }[] = [];
 
     for (const { emails, credits } of giveaways) {
+      const amountCzk = creditsToAmountCzk(credits);
       for (const email of emails) {
         const user = await findOrCreateUser(ctx, email);
         await ctx.db.insert("payments", {
           userId: user._id,
           creditsDelta: credits,
+          amountCzk,
           createdAt: now,
           source: "giveaway",
         });
-        results.push({ email: user.email, credits, userId: user._id as string });
+        results.push({ email: user.email, credits, amountCzk, userId: user._id as string });
       }
     }
 

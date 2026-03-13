@@ -105,7 +105,7 @@ export const getData = query({
     const payments = await ctx.db.query("payments").collect();
     let totalCzk = 0;
     for (const payment of payments) {
-      if (typeof payment.amountCzk === "number") {
+      if (typeof payment.amountCzk === "number" && payment.source !== "giveaway" && payment.source !== "credit_multiplier_x22") {
         totalCzk += payment.amountCzk;
       }
     }
