@@ -126,6 +126,49 @@ export const multiplyAllCredits = internalMutation({
   },
 });
 
+// npx convex run credits:giveawayPixels
+export const giveawayPixels = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const giveaways: { emails: string[]; credits: number }[] = [
+      { emails: ["ja0mlad@gmail.com"], credits: 6969 },
+      { emails: ["radek@kysely.org", "urzanarchy@gmail.com"], credits: 3485 },
+      { emails: [
+        "jan.oharek@seznam.cz",
+        "feranyzen@gmail.com",
+        "filipker@seznam.cz",
+        "czbonfire@gmail.com",
+        "kucharv999@gmail.com",
+        "tomas.firtik@gmail.com",
+        "ondra.copak@gmail.com",
+        "david.cesal1@seznam.cz",
+        "camobeasto@proton.me",
+        "adam.petricek@centrum.cz",
+        "vitus55@seznam.cz",
+        "hrubyadam@hotmail.cz",
+      ], credits: 222 },
+    ];
+
+    const now = Date.now();
+    const results: { email: string; credits: number; userId: string }[] = [];
+
+    for (const { emails, credits } of giveaways) {
+      for (const email of emails) {
+        const user = await findOrCreateUser(ctx, email);
+        await ctx.db.insert("payments", {
+          userId: user._id,
+          creditsDelta: credits,
+          createdAt: now,
+          source: "giveaway",
+        });
+        results.push({ email: user.email, credits, userId: user._id as string });
+      }
+    }
+
+    return { distributed: results.length, results };
+  },
+});
+
 export const findOrCreateUserMutation = internalMutation({
   args: { email: v.string() },
   handler: async (ctx, { email }) => {

@@ -1230,7 +1230,8 @@ export function Canvas({
       event.preventDefault();
       const isTrackpadPinch = event.ctrlKey === true;
 
-      if (!isTrackpadPinch && stampWheelRef.current.pixels?.length && stampWheelRef.current.onResize) {
+      const isVerticalScroll = Math.abs(event.deltaY) > Math.abs(event.deltaX);
+      if (!isTrackpadPinch && isVerticalScroll && stampWheelRef.current.pixels?.length && stampWheelRef.current.onResize) {
         const delta = event.deltaY > 0 ? -1 : 1;
         stampWheelRef.current.onResize(delta);
         return;
